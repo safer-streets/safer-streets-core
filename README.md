@@ -1,5 +1,7 @@
 # Safer Streets EDA
 
+A place for prototyping and exploration. Not intended to be polished or complete in any way.
+
 Using data from:
 
 - [police.uk](https://data.police.uk/) bulk downloads/API 
@@ -19,6 +21,6 @@ uv pip install -r requirements.txt
 Primarily jupyter notebooks:
 
 - `police-api.ipynb`: general exploration and visualisation of the police data for West Yorkshire
-- `kde-sampling.ipynb`: spatial sampling using KDE
+- `kde-sampling.ipynb`: spatial crime sampling using KDE
 
 
