@@ -1,10 +1,10 @@
 # Safer Streets EDA
 
-A place for prototyping and exploration. Not intended to be polished or complete in any way.
+A place for prototyping and exploration. Not intended to be polished or complete in any way, and subject to change without notice
 
 Using data from:
 
-- [police.uk](https://data.police.uk/) bulk downloads/API 
+- [police.uk](https://data.police.uk/) bulk downloads/API
 - ONS for census geographies (e.g. https://geoportal.statistics.gov.uk/datasets/ons::lower-layer-super-output-areas-december-2021-boundaries-ew-bsc-v4-2/about)
 
 ## Setup
@@ -20,7 +20,8 @@ uv pip install -r requirements.txt
 
 Primarily jupyter notebooks:
 
-- `police-api.ipynb`: general exploration and visualisation of the police data for West Yorkshire
-- `kde-sampling.ipynb`: spatial crime sampling using KDE
-
+-[X] `police-api.ipynb`: general exploration and visualisation of the police data for West Yorkshire
+-[X] `kde-sampling.ipynb`: spatial crime sampling using KDE
+-[X] `poisson-gamma.ipynb`: negative binomial approach in Mohler (2019)
+-[ ] `network.ipynb`: sampling on a street network
 
