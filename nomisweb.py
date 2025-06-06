@@ -2,6 +2,8 @@
 #   filename:  top_level_geogs.json
 #   timestamp: 2025-06-05T07:10:04+00:00
 
+import os
+from functools import cache
 from hashlib import md5
 from itertools import groupby
 from pathlib import Path
@@ -9,6 +11,7 @@ from typing import Any
 
 import pandas as pd
 import requests
+from dotenv import load_dotenv
 from pydantic import BaseModel
 
 
@@ -27,7 +30,7 @@ class Description(BaseModel):
 
 
 class CodeItem(BaseModel):
-    annotations: Annotations | None
+    annotations: Annotations = Annotations(annotation=[])
     description: Description
     value: int | str
     parentcode: int | None = None
@@ -112,7 +115,7 @@ class Keyfamilies(BaseModel):
     keyfamily: list[KeyfamilyItem]
 
 
-class GeoStructure(BaseModel):
+class FieldStructure(BaseModel):
     codelists: Codelists
     header: Header
     xmlns: str
@@ -122,16 +125,18 @@ class GeoStructure(BaseModel):
     schemalocation: str
 
 
-class Geographies(BaseModel):
-    structure: GeoStructure
+class FieldMetadata(BaseModel):
+    structure: FieldStructure
 
+    # this is geography-specific
     def to_dataframe(self) -> pd.DataFrame:
         return pd.DataFrame(
             [
-                {"NomisCode": item.value} | {a.annotationtitle: a.annotationtext for a in item.annotations.annotation}
+                {"NomisCode": item.value, "Description": item.description.value}
+                | {a.annotationtitle: a.annotationtext for a in item.annotations.annotation}
                 for item in self.structure.codelists.codelist[0].code
             ]
-        ).set_index("GeogCode")
+        ).set_index("NomisCode")
 
 
 class TableStructure(BaseModel):
@@ -161,14 +166,20 @@ def build_geog_query(codes: list[int]) -> str:
 BASE_URL = "https://www.nomisweb.co.uk/api/v01"
 
 
+@cache
+def api_key() -> dict[str, str]:
+    load_dotenv()
+    return {"uid": os.environ["NOMIS_API_KEY"]}
+
+
 def fetch(endpoint: str, **params: str) -> dict[str, Any]:
-    response = requests.get(f"{BASE_URL}/{endpoint}", params=params)
+    response = requests.get(f"{BASE_URL}/{endpoint}", params=params | api_key())
     response.raise_for_status()
     return response.json()
 
 
 def fetch_table(table_name: str, **params: str) -> pd.DataFrame:
-    url = f"{BASE_URL}/dataset/{table_name}.data.csv?{'&'.join(f'{k}={v}' for k, v in params.items())}"
+    url = f"{BASE_URL}/dataset/{table_name}.data.csv?{'&'.join(f'{k}={v}' for k, v in (params | api_key()).items())}"
     # print(url)
     filename = Path(f"./data/{md5(url.encode()).hexdigest()}.parquet")
     if not filename.exists():
