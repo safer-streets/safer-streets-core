@@ -9,7 +9,7 @@ Using data from:
 
 ## Setup
 
-This repo is *not* a package. Create a venv and install from `requirements.txt`. [uv](https://docs.astral.sh/uv/) is highly recommended for managing the environment:
+This repo is *not* a package. Create a venv and install from `requirements.txt`. [uv](https://docs.astral.sh/uv/) is highly recommended for managing the environment, e.g.:
 
 ```sh
 uv venv --python 3.12
@@ -20,8 +20,10 @@ uv pip install -r requirements.txt
 
 Primarily jupyter notebooks:
 
--[X] `police-api.ipynb`: general exploration and visualisation of the police data for West Yorkshire
--[X] `kde-sampling.ipynb`: spatial crime sampling using KDE
--[X] `poisson-gamma.ipynb`: negative binomial approach in Mohler (2019)
--[ ] `network.ipynb`: sampling on a street network
+- [X] `police-api.ipynb`: general exploration and visualisation of the police data for West Yorkshire
+- [X] `kde-sampling.ipynb`: spatial crime sampling using KDE
+- [X] `poisson-gamma.ipynb`: negative binomial approach in Mohler (2019)
+- [X] `nomisweb.ipynb`: adding demographic data
+- [X] `lorenz-curve.ipynb`
+- [ ] `network.ipynb`: sampling on a street network
 
