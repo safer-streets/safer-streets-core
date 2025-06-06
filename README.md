@@ -6,6 +6,7 @@ Using data from:
 
 - [police.uk](https://data.police.uk/) bulk downloads/API
 - ONS for census geographies (e.g. https://geoportal.statistics.gov.uk/datasets/ons::lower-layer-super-output-areas-december-2021-boundaries-ew-bsc-v4-2/about)
+- [Nomisweb](https://www.nomisweb.co.uk/) for demographic data (requires an API key)
 
 ## Setup
 
@@ -16,6 +17,8 @@ uv venv --python 3.12
 uv pip install -r requirements.txt
 ```
 
+Set the env var `NOMIS_API_KEY` with your Nomis API key. Ideally put it in a `.env` file.
+
 ## Content
 
 Primarily jupyter notebooks:
@@ -24,6 +27,6 @@ Primarily jupyter notebooks:
 - [X] `kde-sampling.ipynb`: spatial crime sampling using KDE
 - [X] `poisson-gamma.ipynb`: negative binomial approach in Mohler (2019)
 - [X] `nomisweb.ipynb`: adding demographic data
-- [X] `lorenz-curve.ipynb`
-- [ ] `network.ipynb`: sampling on a street network
+- [X] `lorenz-curve.ipynb`: compute Lorenz curves for different crime types
+- [X] `street-network.ipynb`: sampling on a street network
 

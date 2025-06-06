@@ -4,7 +4,10 @@ from zipfile import ZipFile
 
 import geopandas as gpd
 import pandas as pd
+import requests
 from shapely import Polygon
+
+from models import Neighbourhoods, RawPolygon
 
 CATEGORIES = ("Violence and sexual offences", "Public order", "Possession of weapons")
 
@@ -30,6 +33,27 @@ def get_lsoa_boundaries(resolution: str, *, overlapping: gpd.GeoDataFrame | None
         bbox = overlapping.geometry.union_all()  # .envelope
         lsoa_boundaries = lsoa_boundaries[lsoa_boundaries.geometry.intersects(bbox)]
     return lsoa_boundaries
+
+
+def _get_boundary(force: str, neighbourhood_id: str) -> Polygon:
+    try:
+        return RawPolygon(requests.get(f"{POLICE_BASE_URL}/{force}/{neighbourhood_id}/boundary").json()).to_shapely()
+    except Exception:
+        return Polygon()
+
+
+POLICE_BASE_URL = "http://data.police.uk/api"
+
+
+def get_neighbourhood_boundaries(force: str) -> gpd.GeoDataFrame:
+    neighbourhoods = Neighbourhoods(requests.get(f"{POLICE_BASE_URL}/{force}/neighbourhoods").json())
+    neighbourhood_boundaries = gpd.GeoDataFrame(
+        index=tuple(n.id for n in neighbourhoods),
+        data={"name": (n.name for n in neighbourhoods)},
+        geometry=[_get_boundary(force, n.id) for n in neighbourhoods],
+        crs="epsg:4326",
+    ).to_crs(epsg=27700)
+    return neighbourhood_boundaries
 
 
 # using https://data.police.uk/data/, "custom download" tab
