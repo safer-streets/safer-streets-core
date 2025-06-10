@@ -1,15 +1,20 @@
+from __future__ import annotations
+
 from collections.abc import Iterator
+from functools import cache
+from itertools import pairwise
 from pathlib import Path
 from zipfile import ZipFile
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import requests
 from shapely import Polygon
 
 from models import Neighbourhoods, RawPolygon
 
-CATEGORIES = ("Violence and sexual offences", "Public order", "Possession of weapons")
+CATEGORIES = ("Violence and sexual offences", "Anti-social behaviour", "Possession of weapons")
 
 
 def format_boundary_as_param(polygon: Polygon) -> str:
@@ -17,17 +22,31 @@ def format_boundary_as_param(polygon: Polygon) -> str:
     return ":".join(f"{x:.3f},{y:.3f}" for x, y in xy)
 
 
-# Ensure you download at least one of these from ONS
+# Download at least one of these from ONS
 # e.g. https://geoportal.statistics.gov.uk/datasets/ons::lower-layer-super-output-areas-december-2021-boundaries-ew-bsc-v4-2/about
-LSOA_BOUNDARY_FILES = {
-    "FE": "Lower_layer_Super_Output_Areas_December_2021_Boundaries_EW_BFE_V10_-3435351624505741073.zip",
-    "GC": "Lower_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V5_4492169359079898015.zip",
-    "SC": "Lower_layer_Super_Output_Areas_December_2021_Boundaries_EW_BSC_V4_-5236167991066794441.zip",
+CENSUS_BOUNDARY_FILES = {
+    "MSOA21": {
+        "FE": "Middle_layer_Super_Output_Areas_December_2021_Boundaries_EW_BFE_V8_-1517080999235121072.zip",
+        "GC": "Middle_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V3_-6221323399304446140.zip",
+    },
+    "LSOA21": {
+        "FE": "Lower_layer_Super_Output_Areas_December_2021_Boundaries_EW_BFE_V10_-3435351624505741073.zip",
+        "GC": "Lower_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V5_4492169359079898015.zip",
+        "SC": "Lower_layer_Super_Output_Areas_December_2021_Boundaries_EW_BSC_V4_-5236167991066794441.zip",
+    },
+    "OA21": {
+        "FE": "Output_Areas_2021_EW_BFE_V9_-4280877107876255952.zip",
+        "GC": "Output_Areas_2021_EW_BGC_V2_-6371128854279904124.zip",
+    },
 }
 
 
-def get_lsoa_boundaries(resolution: str, *, overlapping: gpd.GeoDataFrame | None = None) -> gpd.GeoDataFrame:
-    lsoa_boundaries = gpd.read_file(f"./data/{LSOA_BOUNDARY_FILES[resolution]}").set_index("LSOA21CD")
+def get_census_boundaries(
+    geography: str, resolution: str, *, overlapping: gpd.GeoDataFrame | None = None
+) -> gpd.GeoDataFrame:
+    lsoa_boundaries = gpd.read_file(f"./data/{CENSUS_BOUNDARY_FILES[geography][resolution]}").set_index(
+        f"{geography}CD"
+    )
     if overlapping is not None:
         # throw away any not in the bounding box defined by the crimes
         bbox = overlapping.geometry.union_all()  # .envelope
@@ -40,6 +59,47 @@ def _get_boundary(force: str, neighbourhood_id: str) -> Polygon:
         return RawPolygon(requests.get(f"{POLICE_BASE_URL}/{force}/{neighbourhood_id}/boundary").json()).to_shapely()
     except Exception:
         return Polygon()
+
+
+@cache
+def get_raw_geog_lookup() -> pd.DataFrame:
+    # https://www.arcgis.com/sharing/rest/content/items/80592949bebd4390b2cbe29159a75ef4/data
+    return pd.read_csv("./data/PCD_OA21_LSOA21_MSOA21_LAD_FEB25_UK_LU.zip")
+
+
+def get_geog_lookup(geog_from: str, geogs_to: list[str]) -> pd.DataFrame:
+    lookup = get_raw_geog_lookup()[[geog_from, *geogs_to]].drop_duplicates()
+
+    return lookup.set_index(geog_from)
+
+
+# not available in the police API...
+def get_force_boundary(force_name: str) -> gpd.GeoDataFrame:
+    force_boundaries = gpd.read_file("./data/Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
+    return force_boundaries[force_name == force_boundaries.PFA23NM]
+
+
+def get_square_grid(size: float, force_name: str) -> gpd.GeoDataFrame:
+    force_boundary = get_force_boundary(force_name)
+
+    xmin, ymin, xmax, ymax = force_boundary.total_bounds
+    X = np.arange(xmin // size * size, xmax // size * (size + 1), size)
+    Y = np.arange(ymin // size * size, ymax // size * (size + 1), size)
+
+    p = [Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)]) for x0, x1 in pairwise(X) for y0, y1 in pairwise(Y)]
+
+    grid = (
+        gpd.GeoDataFrame(geometry=p, crs="EPSG:27700")
+        .sjoin(force_boundary[["PFA23CD", "PFA23NM", "geometry"]])
+        .drop(columns="index_right")
+    )
+    return grid
+
+
+def get_hex_grid(resolution: int, force_name: str) -> gpd.GeoDataFrame:
+    """Use resolution = 7 for ~4.5km2 cells, 8 for ~0.65km2 cells, 9 for ~0.1km2 cells"""
+    force_boundary = get_force_boundary(force_name)
+    return force_boundary.to_crs(epsg=4326).h3.polyfill_resample(resolution).to_crs(epsg=27700)
 
 
 POLICE_BASE_URL = "http://data.police.uk/api"
@@ -60,17 +120,10 @@ def get_neighbourhood_boundaries(force: str) -> gpd.GeoDataFrame:
 def extract_crime_data(path: Path | str) -> gpd.GeoDataFrame:
     with ZipFile(path) as bulk_data:
         crimes = []
-        outcomes = []
         for file in bulk_data.namelist():
             if "street" in file:
                 crimes.append(pd.read_csv(bulk_data.open(file)))
-            elif "outcomes" in file:
-                outcomes.append(pd.read_csv(bulk_data.open(file)))
         crime_data = pd.concat(crimes).set_index("Crime ID")
-        outcome_data = pd.concat(outcomes).set_index("Crime ID")
-
-    # outcomes only differ for <10% of crimes
-    crime_data = crime_data.merge(outcome_data["Outcome type"], left_index=True, right_index=True)
 
     # drop crimes with no location
     crime_data = crime_data.dropna(subset=["Longitude", "Latitude"])
@@ -89,3 +142,11 @@ def monthgen(year: int, month: int) -> Iterator[str]:
         if month == 13:
             month = 1
             year += 1
+
+
+def lorenz_curve(data: pd.Series[int], *, percentiles: bool = False) -> pd.Series[float]:
+    full = data.sort_values().cumsum() / data.sum()
+    if percentiles:
+        x = np.linspace(0, 100, 101)
+        return pd.Series(index=x, data=np.percentile(full, x))
+    return full
