@@ -56,7 +56,9 @@ def get_census_boundaries(
 
 def _get_boundary(force: str, neighbourhood_id: str) -> Polygon:
     try:
-        return RawPolygon(requests.get(f"{POLICE_BASE_URL}/{force}/{neighbourhood_id}/boundary").json()).to_shapely()
+        return RawPolygon(
+            requests.get(f"{POLICE_API_BASE_URL}/{force}/{neighbourhood_id}/boundary").json()
+        ).to_shapely()
     except Exception:
         return Polygon()
 
@@ -102,11 +104,26 @@ def get_hex_grid(resolution: int, force_name: str) -> gpd.GeoDataFrame:
     return force_boundary.to_crs(epsg=4326).h3.polyfill_resample(resolution).to_crs(epsg=27700)
 
 
-POLICE_BASE_URL = "http://data.police.uk/api"
+def snap_to_street_segment(points: gpd.GeoDataFrame, street_segments: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Appends 2 columns to dataframe points"""
+    map, dist = street_segments.geometry.sindex.nearest(points.geometry, return_distance=True, return_all=False)
+    points.loc[:, "street_segment"] = street_segments.iloc[map[1]].index
+    points.loc[:, "distance"] = dist
+    return points
+
+
+POLICE_API_BASE_URL = "http://data.police.uk/api"
+POLICE_DATA_BASE_URL = "http://data.police.uk/data"
+CRIME_ARCHIVE = Path("./data/police_data_latest.zip")
+
+
+def tokenize_force_name(force_name: str) -> str:
+    """Tokenize the force name for use in file paths."""
+    return force_name.replace(" ", "-").lower()
 
 
 def get_neighbourhood_boundaries(force: str) -> gpd.GeoDataFrame:
-    neighbourhoods = Neighbourhoods(requests.get(f"{POLICE_BASE_URL}/{force}/neighbourhoods").json())
+    neighbourhoods = Neighbourhoods(requests.get(f"{POLICE_API_BASE_URL}/{force}/neighbourhoods").json())
     neighbourhood_boundaries = gpd.GeoDataFrame(
         index=tuple(n.id for n in neighbourhoods),
         data={"name": (n.name for n in neighbourhoods)},
@@ -116,12 +133,15 @@ def get_neighbourhood_boundaries(force: str) -> gpd.GeoDataFrame:
     return neighbourhood_boundaries
 
 
-# using https://data.police.uk/data/, "custom download" tab
-def extract_crime_data(path: Path | str) -> gpd.GeoDataFrame:
-    with ZipFile(path) as bulk_data:
+def extract_crime_data(force: str) -> gpd.GeoDataFrame:
+    """Extracts crime data for a given force from the latest archive."""
+    if not CRIME_ARCHIVE.exists():
+        get_latest_archive()
+
+    with ZipFile(CRIME_ARCHIVE) as bulk_data:
         crimes = []
         for file in bulk_data.namelist():
-            if "street" in file:
+            if f"{force}-street" in file:
                 crimes.append(pd.read_csv(bulk_data.open(file)))
         crime_data = pd.concat(crimes).set_index("Crime ID")
 
@@ -133,6 +153,38 @@ def extract_crime_data(path: Path | str) -> gpd.GeoDataFrame:
         geometry=gpd.points_from_xy(crime_data.Longitude, crime_data.Latitude),
         crs="EPSG:4326",
     ).to_crs(epsg=27700)
+
+
+def get_latest_archive() -> bool:
+    """
+    Downloads the latest police data archive and saves it to CRIME_ARCHIVE.
+    To force a download, delete the existing CRIME_ARCHIVE file, or just explicitly call this function.
+    """
+    url = f"{POLICE_DATA_BASE_URL}/archive/latest.zip"
+    MB = 1024 * 1024
+
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+
+        size = int(response.headers.get("content-length", 0))
+        print(f"Downloading archive {size // MB}MB", end="")
+
+        with open(CRIME_ARCHIVE, "wb") as f:
+            for chunk in response.iter_content(chunk_size=MB):
+                if chunk:
+                    f.write(chunk)
+                    print(".", end="", flush=True)
+        print("\nDownload complete.")
+        return True
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error during download: {e}")
+    except OSError as e:
+        print(f"Error writing file {CRIME_ARCHIVE}: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+    return False
 
 
 def monthgen(year: int, month: int) -> Iterator[str]:
