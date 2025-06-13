@@ -133,8 +133,11 @@ def get_neighbourhood_boundaries(force: str) -> gpd.GeoDataFrame:
     return neighbourhood_boundaries
 
 
-def extract_crime_data(force: str) -> gpd.GeoDataFrame:
-    """Extracts crime data for a given force from the latest archive."""
+def extract_crime_data(force: str, *, keep_lonlat: bool = False) -> gpd.GeoDataFrame:
+    """
+    Extracts crime data for a given force from the latest archive.
+    Use keep_lonlat for rendering  streamlit maps
+    """
     if not CRIME_ARCHIVE.exists():
         get_latest_archive()
 
@@ -149,7 +152,9 @@ def extract_crime_data(force: str) -> gpd.GeoDataFrame:
     crime_data = crime_data.dropna(subset=["Longitude", "Latitude"])
 
     return gpd.GeoDataFrame(
-        crime_data.drop(columns=["Longitude", "Latitude"]),
+        crime_data.rename(columns={"Longitude": "lon", "Latitude": "lat"})
+        if keep_lonlat
+        else crime_data.drop(columns=["Longitude", "Latitude"]),
         geometry=gpd.points_from_xy(crime_data.Longitude, crime_data.Latitude),
         crs="EPSG:4326",
     ).to_crs(epsg=27700)

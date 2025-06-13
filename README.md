@@ -30,16 +30,23 @@ Primarily jupyter notebooks:
 - [X] `lorenz-curve.ipynb`: compute Lorenz curves for different crime types
 - [X] `street-network.ipynb`: sampling on a street network
 - [X] `asb.ipynb`: focussing on antisocial behaviour at different spatial scales and units
+- [ ] `area-ranking.ipynb`: looking at temporal variability of spatial rankings
 
 ## TODO
 
-- Spatial:
+- Spatial units/scales:
   - [X] MSOA
   - [X] LSOA
   - [X] OA
   - [X] Grid,
   - [X] Hex Grid
   - [X] Street segments
+  - [ ] Other spatial geometries
+
+- Spatial sensivity
+  - [ ] unit size
+  - [ ] unit positioning
+  - [ ] Seasonality of **crime concentration**
 
 - Demographics:
   - [ ] Resident population
