@@ -7,10 +7,11 @@ from pathlib import Path
 from zipfile import ZipFile
 
 import geopandas as gpd
+import h3pandas  # noqa (implicitly required)
 import numpy as np
 import pandas as pd
 import requests
-from shapely import Polygon
+from shapely import Polygon, transform
 
 from models import Neighbourhoods, RawPolygon
 
@@ -78,15 +79,22 @@ def get_geog_lookup(geog_from: str, geogs_to: list[str]) -> pd.DataFrame:
 # not available in the police API...
 def get_force_boundary(force_name: str) -> gpd.GeoDataFrame:
     force_boundaries = gpd.read_file("./data/Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
+    if force_name not in force_boundaries.PFA23NM.to_list():
+        raise ValueError(f"{force_name} is not valid. Must be one of {', '.join(force_boundaries.PFA23NM)}")
     return force_boundaries[force_name == force_boundaries.PFA23NM]
 
 
-def get_square_grid(size: float, force_name: str) -> gpd.GeoDataFrame:
+def get_square_grid(size: float, force_name: str, *, offset: tuple[float, float] = (0.0, 0.0)) -> gpd.GeoDataFrame:
     force_boundary = get_force_boundary(force_name)
 
+    assert (-size, -size) < offset < (size, size), "offsets should be smaller than size"
+
+    xoff, yoff = offset
     xmin, ymin, xmax, ymax = force_boundary.total_bounds
-    X = np.arange(xmin // size * size, xmax // size * (size + 1), size)
-    Y = np.arange(ymin // size * size, ymax // size * (size + 1), size)
+
+    # X = np.arange(xmin // size * size, xmax // size * (size + 1), size)
+    X = np.arange(xmin // size * size - size + xoff, xmax // size * size + 3 * size + xoff, size)
+    Y = np.arange(ymin // size * size - size + yoff, ymax // size * size + 3 * size + yoff, size)
 
     p = [Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)]) for x0, x1 in pairwise(X) for y0, y1 in pairwise(Y)]
 
@@ -98,10 +106,35 @@ def get_square_grid(size: float, force_name: str) -> gpd.GeoDataFrame:
     return grid
 
 
-def get_hex_grid(resolution: int, force_name: str) -> gpd.GeoDataFrame:
-    """Use resolution = 7 for ~4.5km2 cells, 8 for ~0.65km2 cells, 9 for ~0.1km2 cells"""
+def get_hex_grid(resolution: int, force_name: str, *, offset: tuple[float, float] | None = None) -> gpd.GeoDataFrame:
+    """
+    Use resolution = 7 for ~4.5km2 cells, 8 for ~0.65km2 cells, 9 for ~0.1km2 cells
+    h3_polyfill uses centroids to determine overlap so we add a 2km buffer then spatially join to original boundary
+    Offset is metres (BNG)
+    """
     force_boundary = get_force_boundary(force_name)
-    return force_boundary.to_crs(epsg=4326).h3.polyfill_resample(resolution).to_crs(epsg=27700)
+
+    # to offset hex grid without causing overlap mismatches:
+    # shift boundary by -offset -> get hex grid -> shift grid by offset
+    if offset:
+        force_boundary.geometry = transform(force_boundary.geometry, lambda xy: xy - offset)
+
+    hex = (
+        gpd.GeoDataFrame(geometry=force_boundary.geometry.buffer(2000))
+        .to_crs(epsg=4326)
+        .h3.polyfill_resample(resolution)
+        .to_crs(epsg=27700)
+    )
+
+    if offset:
+        hex.geometry = transform(hex.geometry, lambda xy: xy + offset)
+
+    grid = (
+        gpd.GeoDataFrame(geometry=hex.geometry, crs="EPSG:27700")
+        .sjoin(force_boundary[["PFA23CD", "PFA23NM", "geometry"]])
+        .drop(columns="index_right")
+    )
+    return grid
 
 
 def snap_to_street_segment(points: gpd.GeoDataFrame, street_segments: gpd.GeoDataFrame) -> gpd.GeoDataFrame:

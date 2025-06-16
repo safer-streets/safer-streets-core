@@ -52,3 +52,7 @@ Primarily jupyter notebooks:
   - [ ] Resident population
   - [ ] Workplace population
 
+
+## Resources
+
+https://geopandas.org/en/stable/docs/user_guide/geometric_manipulations.html
