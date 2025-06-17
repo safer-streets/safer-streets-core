@@ -9,6 +9,7 @@ from zipfile import ZipFile
 import geopandas as gpd
 import h3pandas  # noqa (implicitly required)
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import requests
 from shapely import Polygon, transform
@@ -72,7 +73,6 @@ def get_raw_geog_lookup() -> pd.DataFrame:
 
 def get_geog_lookup(geog_from: str, geogs_to: list[str]) -> pd.DataFrame:
     lookup = get_raw_geog_lookup()[[geog_from, *geogs_to]].drop_duplicates()
-
     return lookup.set_index(geog_from)
 
 
@@ -240,3 +240,47 @@ def lorenz_curve(data: pd.Series[int], *, percentiles: bool = False) -> pd.Serie
         x = np.linspace(0, 100, 101)
         return pd.Series(index=x, data=np.percentile(full, x))
     return full
+
+
+def calc_gini(data: pd.Series[int]) -> tuple[float, npt.NDArray]:
+    lorenz = lorenz_curve(data, percentiles=True)
+    # trapezoidal rule (scaled by 100 - x axis is %)
+    gini = 1.0 - lorenz.rolling(2).mean().sum() / 50.0
+    return gini, lorenz
+
+
+# this is inefficient for multiple correlations - see below
+def spearman_rank_correlation(left: pd.Series, right: pd.Series) -> float:
+    assert not len(np.setdiff1d(left.index, right.index)) and not len(np.setdiff1d(right.index, left.index))
+
+    left_ranks = left.rank(method="min", ascending=False)
+    right_ranks = right.rank(method="min", ascending=False)
+
+    return _spearman_rank_correlation_impl(left_ranks - right_ranks)
+
+
+def _spearman_rank_correlation_impl(diff: pd.Series) -> float:
+    n = len(diff)
+    return 1 - 6 * (diff**2).sum() / (n * (n * n - 1))
+
+
+def spearman_rank_correlation_matrix(counts: pd.DataFrame) -> npt.NDArray:
+    """
+    Calculate the Spearman rank correlation for each pair of columns in a DataFrame.
+    Returns a symmetric matrix with correlations.
+    """
+    assert counts.index.is_unique, "Index must be unique for correlation calculation"
+    assert not counts.empty, "DataFrame must not be empty"
+
+    # Initialize a square matrix for correlations
+    n = len(counts.columns)
+    correlations = np.eye(n)
+
+    ranks = counts.apply(lambda col: col.rank(method="min", ascending=False))
+
+    for i in range(n):
+        for j in range(i):
+            correlations[i, j] = correlations[j, i] = _spearman_rank_correlation_impl(
+                ranks.iloc[:, i] - ranks.iloc[:, j]
+            )
+    return correlations
