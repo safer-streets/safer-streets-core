@@ -53,7 +53,7 @@ def get_census_boundaries(
         # Calculate intersection area as a fraction of the boundary's area
         intersection = joined.geometry.intersection(overlapping.unary_union)
         # Drop any without significant overlap
-        boundaries = joined[intersection.area / joined.geometry.area > 0.01]
+        boundaries = joined[intersection.area / joined.geometry.area > 0.01].drop(columns=["index_right"])
     return boundaries
 
 
@@ -82,16 +82,18 @@ def get_force_boundary(force_name: str) -> gpd.GeoDataFrame:
     force_boundaries = gpd.read_file("./data/Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
     if force_name not in force_boundaries.PFA23NM.to_list():
         raise ValueError(f"{force_name} is not valid. Must be one of {', '.join(force_boundaries.PFA23NM)}")
-    return force_boundaries[force_name == force_boundaries.PFA23NM]
+    return force_boundaries[force_name == force_boundaries.PFA23NM].drop(
+        columns=["BNG_E", "BNG_N", "LAT", "LONG", "GlobalID"]
+    )
 
 
-def get_square_grid(size: float, force_name: str, *, offset: tuple[float, float] = (0.0, 0.0)) -> gpd.GeoDataFrame:
-    force_boundary = get_force_boundary(force_name)
-
+def get_square_grid(
+    size: float, boundary: gpd.GeoDataFrame, *, offset: tuple[float, float] = (0.0, 0.0)
+) -> gpd.GeoDataFrame:
     assert (-size, -size) < offset < (size, size), "offsets should be smaller than size"
 
     xoff, yoff = offset
-    xmin, ymin, xmax, ymax = force_boundary.total_bounds
+    xmin, ymin, xmax, ymax = boundary.total_bounds
 
     # X = np.arange(xmin // size * size, xmax // size * (size + 1), size)
     X = np.arange(xmin // size * size - size + xoff, xmax // size * size + 3 * size + xoff, size)
@@ -101,27 +103,27 @@ def get_square_grid(size: float, force_name: str, *, offset: tuple[float, float]
 
     grid = (
         gpd.GeoDataFrame(geometry=p, crs="EPSG:27700")
-        .sjoin(force_boundary[["PFA23CD", "PFA23NM", "geometry"]])
+        .sjoin(boundary[["PFA23CD", "PFA23NM", "geometry"]])  # FIXME: decouple boundary and force area
         .drop(columns="index_right")
     )
     return grid
 
 
-def get_hex_grid(resolution: int, force_name: str, *, offset: tuple[float, float] | None = None) -> gpd.GeoDataFrame:
+def get_hex_grid(
+    resolution: int, boundary: gpd.GeoDataFrame, *, offset: tuple[float, float] | None = None
+) -> gpd.GeoDataFrame:
     """
     Use resolution = 7 for ~4.5km2 cells, 8 for ~0.65km2 cells, 9 for ~0.1km2 cells
     h3_polyfill uses centroids to determine overlap so we add a 2km buffer then spatially join to original boundary
     Offset is metres (BNG)
     """
-    force_boundary = get_force_boundary(force_name)
-
     # to offset hex grid without causing overlap mismatches:
     # shift boundary by -offset -> get hex grid -> shift grid by offset
     if offset:
-        force_boundary.geometry = transform(force_boundary.geometry, lambda xy: xy - offset)
+        boundary.geometry = transform(boundary.geometry, lambda xy: xy - offset)
 
     hex = (
-        gpd.GeoDataFrame(geometry=force_boundary.geometry.buffer(2000))
+        gpd.GeoDataFrame(geometry=boundary.geometry.buffer(2000))
         .to_crs(epsg=4326)
         .h3.polyfill_resample(resolution)
         .to_crs(epsg=27700)
@@ -132,7 +134,7 @@ def get_hex_grid(resolution: int, force_name: str, *, offset: tuple[float, float
 
     grid = (
         gpd.GeoDataFrame(geometry=hex.geometry, crs="EPSG:27700")
-        .sjoin(force_boundary[["PFA23CD", "PFA23NM", "geometry"]])
+        .sjoin(boundary[["PFA23CD", "PFA23NM", "geometry"]])  # FIXME: decouple boundary and force area
         .drop(columns="index_right")
     )
     return grid
