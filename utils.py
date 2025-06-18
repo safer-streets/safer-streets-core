@@ -46,14 +46,15 @@ CENSUS_BOUNDARY_FILES = {
 def get_census_boundaries(
     geography: str, resolution: str, *, overlapping: gpd.GeoDataFrame | None = None
 ) -> gpd.GeoDataFrame:
-    lsoa_boundaries = gpd.read_file(f"./data/{CENSUS_BOUNDARY_FILES[geography][resolution]}").set_index(
-        f"{geography}CD"
-    )
+    boundaries = gpd.read_file(f"./data/{CENSUS_BOUNDARY_FILES[geography][resolution]}").set_index(f"{geography}CD")
     if overlapping is not None:
-        # throw away any not in the bounding box defined by the crimes
-        bbox = overlapping.geometry.union_all()  # .envelope
-        lsoa_boundaries = lsoa_boundaries[lsoa_boundaries.geometry.intersects(bbox)]
-    return lsoa_boundaries
+        # Drop boundaries that adjoin the overlapping area (but might overlap slightly due to rounding errors)
+        joined = boundaries.sjoin(overlapping, how="inner", predicate="intersects")
+        # Calculate intersection area as a fraction of the boundary's area
+        intersection = joined.geometry.intersection(overlapping.unary_union)
+        # Drop any without significant overlap
+        boundaries = joined[intersection.area / joined.geometry.area > 0.01]
+    return boundaries
 
 
 def _get_boundary(force: str, neighbourhood_id: str) -> Polygon:
@@ -249,6 +250,11 @@ def calc_gini(data: pd.Series[int]) -> tuple[float, npt.NDArray]:
     return gini, lorenz
 
 
+def _spearman_rank_correlation_impl(diff: pd.Series) -> float:
+    n = len(diff)
+    return 1 - 6 * (diff**2).sum() / (n * (n * n - 1))
+
+
 # this is inefficient for multiple correlations - see below
 def spearman_rank_correlation(left: pd.Series, right: pd.Series) -> float:
     assert not len(np.setdiff1d(left.index, right.index)) and not len(np.setdiff1d(right.index, left.index))
@@ -257,11 +263,6 @@ def spearman_rank_correlation(left: pd.Series, right: pd.Series) -> float:
     right_ranks = right.rank(method="min", ascending=False)
 
     return _spearman_rank_correlation_impl(left_ranks - right_ranks)
-
-
-def _spearman_rank_correlation_impl(diff: pd.Series) -> float:
-    n = len(diff)
-    return 1 - 6 * (diff**2).sum() / (n * (n * n - 1))
 
 
 def spearman_rank_correlation_matrix(counts: pd.DataFrame) -> npt.NDArray:
