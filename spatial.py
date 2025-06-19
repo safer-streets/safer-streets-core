@@ -9,7 +9,7 @@ SpatialUnit = Literal["MSOA", "LSOA", "OA", "GRID", "HEX", "STREET"]
 
 
 def map_to_spatial_unit(
-    raw_crime_data: gpd.GeoDataFrame, boundary: gpd.GeoDataFrame, area_type: SpatialUnit
+    raw_crime_data: gpd.GeoDataFrame, boundary: gpd.GeoDataFrame, area_type: SpatialUnit, **kwargs
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     crime_data = boundary.sjoin(raw_crime_data, how="right").drop(columns="index_left")
 
@@ -31,10 +31,10 @@ def map_to_spatial_unit(
             # get crime counts for OAs by right-joining boundaries to crime data (this wont include crime-free OAs)
             crime_data = features.sjoin(crime_data, how="right").rename(columns={"OA21CD": "spatial_unit"})
         case "GRID":
-            features = get_square_grid(500.0, boundary)
+            features = get_square_grid(boundary, **kwargs)
             crime_data = features.sjoin(crime_data, how="right").rename(columns={"index_left": "spatial_unit"})
         case "HEX":
-            features = get_hex_grid(8, boundary)
+            features = get_hex_grid(boundary, **kwargs)
             crime_data = features.sjoin(crime_data, how="right").rename(columns={"h3_polyfill": "spatial_unit"})
         case "STREET":
             # get street network in lon-lat polygon then project back to BNG

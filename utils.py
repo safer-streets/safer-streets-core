@@ -88,7 +88,7 @@ def get_force_boundary(force_name: str) -> gpd.GeoDataFrame:
 
 
 def get_square_grid(
-    size: float, boundary: gpd.GeoDataFrame, *, offset: tuple[float, float] = (0.0, 0.0)
+    boundary: gpd.GeoDataFrame, *, size: float, offset: tuple[float, float] = (0.0, 0.0)
 ) -> gpd.GeoDataFrame:
     assert (-size, -size) < offset < (size, size), "offsets should be smaller than size"
 
@@ -103,14 +103,14 @@ def get_square_grid(
 
     grid = (
         gpd.GeoDataFrame(geometry=p, crs="EPSG:27700")
-        .sjoin(boundary[["PFA23CD", "PFA23NM", "geometry"]])  # FIXME: decouple boundary and force area
+        .sjoin(boundary[["geometry"]]) 
         .drop(columns="index_right")
     )
     return grid
 
 
 def get_hex_grid(
-    resolution: int, boundary: gpd.GeoDataFrame, *, offset: tuple[float, float] | None = None
+    boundary: gpd.GeoDataFrame, *, resolution: int, offset: tuple[float, float] | None = None
 ) -> gpd.GeoDataFrame:
     """
     Use resolution = 7 for ~4.5km2 cells, 8 for ~0.65km2 cells, 9 for ~0.1km2 cells
@@ -134,7 +134,7 @@ def get_hex_grid(
 
     grid = (
         gpd.GeoDataFrame(geometry=hex.geometry, crs="EPSG:27700")
-        .sjoin(boundary[["PFA23CD", "PFA23NM", "geometry"]])  # FIXME: decouple boundary and force area
+        .sjoin(boundary[["geometry"]]) 
         .drop(columns="index_right")
     )
     return grid
