@@ -2,6 +2,7 @@ from itertools import pairwise
 from typing import Literal
 
 import geopandas as gpd
+import h3pandas  # noqa (implicitly required)
 import numpy as np
 import osmnx as ox
 from shapely import Polygon, transform
@@ -29,7 +30,7 @@ CENSUS_BOUNDARY_FILES = {
 }
 
 
-def _add_centroids(spatial_units: gpd.GeoDataFrame) ->  gpd.GeoDataFrame:
+def _add_centroids(spatial_units: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     spatial_units["BNG_E"] = spatial_units.centroid.x
     spatial_units["BNG_N"] = spatial_units.centroid.y
     lonlat = spatial_units.centroid.to_crs(epsg=4326)

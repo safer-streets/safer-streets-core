@@ -30,6 +30,7 @@ Primarily jupyter notebooks:
 - [X] `lorenz-curve.ipynb`: compute Lorenz curves for different crime types
 - [X] `street-network.ipynb`: sampling on a street network
 - [X] `area-ranking.ipynb`: looking at temporal variability of spatial rankings for different spatial units
+- [ ] `similarity.ipynb`: measuring spatial similarity at different times
 
 ## TODO
 
@@ -50,6 +51,12 @@ Primarily jupyter notebooks:
 - Demographics:
   - [ ] Resident population
   - [ ] Workplace population
+
+- Statistical tests
+  - [X] Spearman rank correlation
+  - [X] Rank-biased ordering... https://towardsdatascience.com/rbo-v-s-kendall-tau-to-compare-ranked-lists-of-items-8776c5182899/
+  - [ ] 2d Kolmogorov-Smirnov
+  - [ ] SPPT (Malleson 2019)
 
 
 ## Resources

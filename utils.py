@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections.abc import Iterator
 from functools import cache
 from pathlib import Path
+from typing import Any
 from zipfile import ZipFile
 
 import geopandas as gpd
-import h3pandas  # noqa (implicitly required)
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -77,7 +77,7 @@ def extract_crime_data(force: str, *, keep_lonlat: bool = False) -> gpd.GeoDataF
         for file in bulk_data.namelist():
             if f"{force}-street" in file:
                 crimes.append(pd.read_csv(bulk_data.open(file)))
-        crime_data = pd.concat(crimes).set_index("Crime ID").drop(columns=["Last outcome category",	"Context"])
+        crime_data = pd.concat(crimes).set_index("Crime ID").drop(columns=["Last outcome category", "Context"])
 
     # drop crimes with no location
     crime_data = crime_data.dropna(subset=["Longitude", "Latitude"])
@@ -182,3 +182,36 @@ def spearman_rank_correlation_matrix(counts: pd.DataFrame) -> npt.NDArray:
                 ranks.iloc[:, i] - ranks.iloc[:, j]
             )
     return correlations
+
+
+# based on code from https://towardsdatascience.com/rbo-v-s-kendall-tau-to-compare-ranked-lists-of-items-8776c5182899/
+def rank_biased_overlap(left: list[Any], right: list[Any], p: float = 0.9) -> float:
+    # tail recursive helper function
+    def impl(ret: float, i: int, d) -> float:
+        #    l1 = set(left[:i]) if i < len(left) else set(left)
+        #    l2 = set(right[:i]) if i < len(right) else set(right)
+        l1 = set(left[:i])
+        l2 = set(right[:i])
+        a_d = len(l1.intersection(l2)) / i
+        term = p**i * a_d
+        if d == i:
+            return ret + term
+        return impl(ret + term, i + 1, d)
+
+    k = max(len(left), len(right))
+    x_k = len(set(left).intersection(set(right)))
+    summation = impl(0.0, 1, k)
+    return ((float(x_k) / k) * p**k) + ((1 - p) / p * summation)
+
+
+def rbo_weight(p: float, n: int) -> float:
+    """
+    Contribution of top n rankings for a given decay constant p
+    e.g. rbo_weight(0.9, 10) ~= 0.856
+    """
+    assert 0 < p <= 1
+    s = sum(p**i / i for i in range(1, n))
+    return 1.0 - p ** (n - 1) + ((1 - p) / p * n * (np.log(1 / (1 - p)) - s))
+
+# Example usage
+# rbo([1,2,3], [3,2,1]) # Output: 0.8550000000000001
