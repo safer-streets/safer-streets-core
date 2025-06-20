@@ -29,8 +29,7 @@ Primarily jupyter notebooks:
 - [X] `nomisweb.ipynb`: adding demographic data
 - [X] `lorenz-curve.ipynb`: compute Lorenz curves for different crime types
 - [X] `street-network.ipynb`: sampling on a street network
-- [X] `asb.ipynb`: focussing on antisocial behaviour at different spatial scales and units
-- [ ] `area-ranking.ipynb`: looking at temporal variability of spatial rankings
+- [X] `area-ranking.ipynb`: looking at temporal variability of spatial rankings for different spatial units
 
 ## TODO
 

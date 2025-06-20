@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from functools import cache
-from itertools import pairwise
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -12,7 +11,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import requests
-from shapely import Polygon, transform
+from shapely import Polygon
 
 from models import Neighbourhoods, RawPolygon
 
@@ -22,39 +21,6 @@ CATEGORIES = ("Violence and sexual offences", "Anti-social behaviour", "Possessi
 def format_boundary_as_param(polygon: Polygon) -> str:
     xy = zip(*(c.tolist() for c in polygon.exterior.coords.xy))
     return ":".join(f"{x:.3f},{y:.3f}" for x, y in xy)
-
-
-# Download at least one of these from ONS
-# e.g. https://geoportal.statistics.gov.uk/datasets/ons::lower-layer-super-output-areas-december-2021-boundaries-ew-bsc-v4-2/about
-CENSUS_BOUNDARY_FILES = {
-    "MSOA21": {
-        "FE": "Middle_layer_Super_Output_Areas_December_2021_Boundaries_EW_BFE_V8_-1517080999235121072.zip",
-        "GC": "Middle_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V3_-6221323399304446140.zip",
-    },
-    "LSOA21": {
-        "FE": "Lower_layer_Super_Output_Areas_December_2021_Boundaries_EW_BFE_V10_-3435351624505741073.zip",
-        "GC": "Lower_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V5_4492169359079898015.zip",
-        "SC": "Lower_layer_Super_Output_Areas_December_2021_Boundaries_EW_BSC_V4_-5236167991066794441.zip",
-    },
-    "OA21": {
-        "FE": "Output_Areas_2021_EW_BFE_V9_-4280877107876255952.zip",
-        "GC": "Output_Areas_2021_EW_BGC_V2_-6371128854279904124.zip",
-    },
-}
-
-
-def get_census_boundaries(
-    geography: str, resolution: str, *, overlapping: gpd.GeoDataFrame | None = None
-) -> gpd.GeoDataFrame:
-    boundaries = gpd.read_file(f"./data/{CENSUS_BOUNDARY_FILES[geography][resolution]}").set_index(f"{geography}CD")
-    if overlapping is not None:
-        # Drop boundaries that adjoin the overlapping area (but might overlap slightly due to rounding errors)
-        joined = boundaries.sjoin(overlapping, how="inner", predicate="intersects")
-        # Calculate intersection area as a fraction of the boundary's area
-        intersection = joined.geometry.intersection(overlapping.unary_union)
-        # Drop any without significant overlap
-        boundaries = joined[intersection.area / joined.geometry.area > 0.01].drop(columns=["index_right"])
-    return boundaries
 
 
 def _get_boundary(force: str, neighbourhood_id: str) -> Polygon:
@@ -75,77 +41,6 @@ def get_raw_geog_lookup() -> pd.DataFrame:
 def get_geog_lookup(geog_from: str, geogs_to: list[str]) -> pd.DataFrame:
     lookup = get_raw_geog_lookup()[[geog_from, *geogs_to]].drop_duplicates()
     return lookup.set_index(geog_from)
-
-
-# not available in the police API...
-def get_force_boundary(force_name: str) -> gpd.GeoDataFrame:
-    force_boundaries = gpd.read_file("./data/Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
-    if force_name not in force_boundaries.PFA23NM.to_list():
-        raise ValueError(f"{force_name} is not valid. Must be one of {', '.join(force_boundaries.PFA23NM)}")
-    return force_boundaries[force_name == force_boundaries.PFA23NM].drop(
-        columns=["BNG_E", "BNG_N", "LAT", "LONG", "GlobalID"]
-    )
-
-
-def get_square_grid(
-    boundary: gpd.GeoDataFrame, *, size: float, offset: tuple[float, float] = (0.0, 0.0)
-) -> gpd.GeoDataFrame:
-    assert (-size, -size) < offset < (size, size), "offsets should be smaller than size"
-
-    xoff, yoff = offset
-    xmin, ymin, xmax, ymax = boundary.total_bounds
-
-    # X = np.arange(xmin // size * size, xmax // size * (size + 1), size)
-    X = np.arange(xmin // size * size - size + xoff, xmax // size * size + 3 * size + xoff, size)
-    Y = np.arange(ymin // size * size - size + yoff, ymax // size * size + 3 * size + yoff, size)
-
-    p = [Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)]) for x0, x1 in pairwise(X) for y0, y1 in pairwise(Y)]
-
-    grid = (
-        gpd.GeoDataFrame(geometry=p, crs="EPSG:27700")
-        .sjoin(boundary[["geometry"]]) 
-        .drop(columns="index_right")
-    )
-    return grid
-
-
-def get_hex_grid(
-    boundary: gpd.GeoDataFrame, *, resolution: int, offset: tuple[float, float] | None = None
-) -> gpd.GeoDataFrame:
-    """
-    Use resolution = 7 for ~4.5km2 cells, 8 for ~0.65km2 cells, 9 for ~0.1km2 cells
-    h3_polyfill uses centroids to determine overlap so we add a 2km buffer then spatially join to original boundary
-    Offset is metres (BNG)
-    """
-    # to offset hex grid without causing overlap mismatches:
-    # shift boundary by -offset -> get hex grid -> shift grid by offset
-    if offset:
-        boundary.geometry = transform(boundary.geometry, lambda xy: xy - offset)
-
-    hex = (
-        gpd.GeoDataFrame(geometry=boundary.geometry.buffer(2000))
-        .to_crs(epsg=4326)
-        .h3.polyfill_resample(resolution)
-        .to_crs(epsg=27700)
-    )
-
-    if offset:
-        hex.geometry = transform(hex.geometry, lambda xy: xy + offset)
-
-    grid = (
-        gpd.GeoDataFrame(geometry=hex.geometry, crs="EPSG:27700")
-        .sjoin(boundary[["geometry"]]) 
-        .drop(columns="index_right")
-    )
-    return grid
-
-
-def snap_to_street_segment(points: gpd.GeoDataFrame, street_segments: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Appends 2 columns to dataframe points"""
-    map, dist = street_segments.geometry.sindex.nearest(points.geometry, return_distance=True, return_all=False)
-    points.loc[:, "street_segment"] = street_segments.iloc[map[1]].index
-    points.loc[:, "distance"] = dist
-    return points
 
 
 POLICE_API_BASE_URL = "http://data.police.uk/api"
@@ -182,7 +77,7 @@ def extract_crime_data(force: str, *, keep_lonlat: bool = False) -> gpd.GeoDataF
         for file in bulk_data.namelist():
             if f"{force}-street" in file:
                 crimes.append(pd.read_csv(bulk_data.open(file)))
-        crime_data = pd.concat(crimes).set_index("Crime ID")
+        crime_data = pd.concat(crimes).set_index("Crime ID").drop(columns=["Last outcome category",	"Context"])
 
     # drop crimes with no location
     crime_data = crime_data.dropna(subset=["Longitude", "Latitude"])
