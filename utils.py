@@ -186,22 +186,10 @@ def spearman_rank_correlation_matrix(counts: pd.DataFrame) -> npt.NDArray:
 
 # based on code from https://towardsdatascience.com/rbo-v-s-kendall-tau-to-compare-ranked-lists-of-items-8776c5182899/
 def rank_biased_overlap(left: list[Any], right: list[Any], p: float = 0.9) -> float:
-    # tail recursive helper function
-    def impl(ret: float, i: int, d) -> float:
-        #    l1 = set(left[:i]) if i < len(left) else set(left)
-        #    l2 = set(right[:i]) if i < len(right) else set(right)
-        l1 = set(left[:i])
-        l2 = set(right[:i])
-        a_d = len(l1.intersection(l2)) / i
-        term = p**i * a_d
-        if d == i:
-            return ret + term
-        return impl(ret + term, i + 1, d)
-
     k = max(len(left), len(right))
-    x_k = len(set(left).intersection(set(right)))
-    summation = impl(0.0, 1, k)
-    return ((float(x_k) / k) * p**k) + ((1 - p) / p * summation)
+    x_k = len(set(left).intersection(right))
+    summation = sum(p**i * len(set(left[:i]).intersection(right[:i])) / i for i in range(1, k + 1))
+    return (float(x_k) / k * p**k) + ((1 - p) / p * summation)
 
 
 def rbo_weight(p: float, n: int) -> float:
@@ -212,6 +200,7 @@ def rbo_weight(p: float, n: int) -> float:
     assert 0 < p <= 1
     s = sum(p**i / i for i in range(1, n))
     return 1.0 - p ** (n - 1) + ((1 - p) / p * n * (np.log(1 / (1 - p)) - s))
+
 
 # Example usage
 # rbo([1,2,3], [3,2,1]) # Output: 0.8550000000000001
