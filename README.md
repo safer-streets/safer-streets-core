@@ -57,7 +57,11 @@ Primarily jupyter notebooks:
   - [X] Rank-biased ordering... https://towardsdatascience.com/rbo-v-s-kendall-tau-to-compare-ranked-lists-of-items-8776c5182899/
   - [ ] 2d Kolmogorov-Smirnov
   - [ ] SPPT (Malleson 2019)
+  - [ ] other similarity measures? QS RMSE
+  - [ ] quadtree?
 
+- Models
+  - [ ] Self-exciting point processes (Hawkes)
 
 ## Resources
 

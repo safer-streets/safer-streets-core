@@ -81,9 +81,9 @@ def plot(
     axs[1, 0].tick_params(axis="x", rotation=45)
 
     if spatial_unit != "STREET":
-        spatial_units.join(total_counts).fillna(0).plot(ax=axs[1,1], column="total_counts", alpha=1, legend=True)
-        axs[1,1].set_title("Total crimes per area")
-    axs[1,1].set_axis_off()
+        spatial_units.join(total_counts).fillna(0).plot(ax=axs[1, 1], column="total_counts", alpha=1, legend=True)
+        axs[1, 1].set_title("Total crimes per area")
+    axs[1, 1].set_axis_off()
 
     return fig
 
