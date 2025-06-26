@@ -153,14 +153,9 @@ def _spearman_rank_correlation_impl(diff: pd.Series) -> float:
     return 1 - 6 * (diff**2).sum() / (n * (n * n - 1))
 
 
-# this is inefficient for multiple correlations - see below
-def spearman_rank_correlation(left: pd.Series, right: pd.Series) -> float:
-    assert not len(np.setdiff1d(left.index, right.index)) and not len(np.setdiff1d(right.index, left.index))
-
-    left_ranks = left.rank(method="min", ascending=False)
-    right_ranks = right.rank(method="min", ascending=False)
-
-    return _spearman_rank_correlation_impl(left - right)
+def spearman_rank_correlation(ranks: pd.DataFrame) -> float:
+    # DataFrame ensure indices are consistent. Assumes 2 cols
+    return _spearman_rank_correlation_impl(ranks.iloc[:, 0] - ranks.iloc[:, 1])
 
 
 def spearman_rank_correlation_matrix(counts: pd.DataFrame) -> npt.NDArray:
@@ -185,111 +180,85 @@ def spearman_rank_correlation_matrix(counts: pd.DataFrame) -> npt.NDArray:
     return correlations
 
 
-# based on code from https://towardsdatascience.com/rbo-v-s-kendall-tau-to-compare-ranked-lists-of-items-8776c5182899/
-def rank_biased_overlap1(left: list[Any], right: list[Any], p: float = 0.9) -> float:
-    k = max(len(left), len(right))
-    x_k = len(set(left).intersection(right))
-    summation = sum(p**i * len(set(left[:i]).intersection(right[:i])) / i for i in range(1, k + 1))
-    return (float(x_k) / k * p**k) + ((1 - p) / p * summation)
+# # based on code from https://towardsdatascience.com/rbo-v-s-kendall-tau-to-compare-ranked-lists-of-items-8776c5182899/
+# def rank_biased_overlap1(left: list[Any], right: list[Any], p: float = 0.9) -> float:
+#     k = max(len(left), len(right))
+#     x_k = len(set(left).intersection(right))
+#     summation = sum(p**i * len(set(left[:i]).intersection(right[:i])) / i for i in range(1, k + 1))
+#     return (float(x_k) / k * p**k) + ((1 - p) / p * summation)
 
 
-def rbo_weight(p: float, n: int) -> float:
-    """
-    Contribution of top n rankings for a given decay constant p
-    e.g. rbo_weight(0.9, 10) ~= 0.856
-    """
-    assert 0 < p <= 1
-    s = sum(p**i / i for i in range(1, n))
-    return 1.0 - p ** (n - 1) + ((1 - p) / p * n * (np.log(1 / (1 - p)) - s))
-
-
-def rank_biased_overlap2(l1, l2, p=0.9):
-    """
-    Calculates Ranked Biased Overlap (RBO) score.
-    l1 -- Ranked List 1
-    l2 -- Ranked List 2
-    """
-    l1 = l1 or []
-    l2 = l2 or []
-
-    sl, ll = sorted([(len(l1), l1), (len(l2), l2)])
-    s, S = sl
-    l, L = ll
-    if s == 0:
-        return 0
-
-    # Calculate the overlaps at ranks 1 through l
-    # (the longer of the two lists)
-    ss = set([])  # contains elements from the smaller list till depth i
-    ls = set([])  # contains elements from the longer list till depth i
-    x_d = {0: 0}
-    sum1 = 0.0
-    for i in range(l):
-        x = L[i]
-        y = S[i] if i < s else None
-        d = i + 1
-
-        # if two elements are same then
-        # we don't need to add to either of the set
-        if x == y:
-            x_d[d] = x_d[d - 1] + 1
-        # else add items to respective list
-        # and calculate overlap
-        else:
-            ls.add(x)
-            if y != None:
-                ss.add(y)
-            x_d[d] = x_d[d - 1] + (1 if x in ss else 0) + (1 if y in ls else 0)
-        # calculate average overlap
-        sum1 += x_d[d] / d * pow(p, d)
-
-    sum2 = 0.0
-    for i in range(l - s):
-        d = s + i + 1
-        sum2 += x_d[d] * (d - s) / (d * s) * pow(p, d)
-
-    sum3 = ((x_d[l] - x_d[s]) / l + x_d[s] / s) * pow(p, l)
-
-    # Equation 32
-    rbo_ext = (1 - p) / p * (sum1 + sum2) + sum3
-    return rbo_ext
-
-
-# def rank_biased_overlap(col1: pd.Series, col2: pd.Series, decay: float = 0.9) -> float:
+# def rbo_weight(p: float, n: int) -> float:
 #     """
-#     Slightly limited home-made rank-biased overlap score.
-#     col1 and col2 must have the same indices (ordering can be different)
+#     Contribution of top n rankings for a given decay constant p
+#     e.g. rbo_weight(0.9, 10) ~= 0.856
 #     """
-
-#     assert col1.index.equals(col2.index)
-#     r1 = tuple(set(group.index) for _, group in col1.groupby(col1))
-#     r2 = tuple(set(group.index) for _, group in col2.groupby(col2))
-
-#     n = max(len(r1), len(r2))
-#     if n == 1:
-#         return 1.0
-
-#     num = 0.0
-#     # can skip the final term since the sets will be identical - add this at the end
-#     for i in range(n - 1):
-#         left = reduce(set.__or__, r1[: i + 1])
-#         right = reduce(set.__or__, r2[: i + 1])
-#         num += decay**i * 2 * len(left & right) / (len(left) + len(right))
-#         # print(i, len(left & right), (len(left) + len(right))/2, num)
-#     return (num + decay ** (n - 1)) / sum(decay**i for i in range(n))
+#     assert 0 < p <= 1
+#     s = sum(p**i / i for i in range(1, n))
+#     return 1.0 - p ** (n - 1) + ((1 - p) / p * n * (np.log(1 / (1 - p)) - s))
 
 
+# def rank_biased_overlap2(l1, l2, p=0.9):
+#     """
+#     Calculates Ranked Biased Overlap (RBO) score.
+#     l1 -- Ranked List 1
+#     l2 -- Ranked List 2
+#     """
+#     l1 = l1 or []
+#     l2 = l2 or []
 
-def rank_biased_overlap(col1: pd.Series, col2: pd.Series, decay: float = 0.9) -> float:
+#     sl, ll = sorted([(len(l1), l1), (len(l2), l2)])
+#     s, S = sl
+#     l, L = ll
+#     if s == 0:
+#         return 0
+
+#     # Calculate the overlaps at ranks 1 through l
+#     # (the longer of the two lists)
+#     ss = set([])  # contains elements from the smaller list till depth i
+#     ls = set([])  # contains elements from the longer list till depth i
+#     x_d = {0: 0}
+#     sum1 = 0.0
+#     for i in range(l):
+#         x = L[i]
+#         y = S[i] if i < s else None
+#         d = i + 1
+
+#         # if two elements are same then
+#         # we don't need to add to either of the set
+#         if x == y:
+#             x_d[d] = x_d[d - 1] + 1
+#         # else add items to respective list
+#         # and calculate overlap
+#         else:
+#             ls.add(x)
+#             if y != None:
+#                 ss.add(y)
+#             x_d[d] = x_d[d - 1] + (1 if x in ss else 0) + (1 if y in ls else 0)
+#         # calculate average overlap
+#         sum1 += x_d[d] / d * pow(p, d)
+
+#     sum2 = 0.0
+#     for i in range(l - s):
+#         d = s + i + 1
+#         sum2 += x_d[d] * (d - s) / (d * s) * pow(p, d)
+
+#     sum3 = ((x_d[l] - x_d[s]) / l + x_d[s] / s) * pow(p, l)
+
+#     # Equation 32
+#     rbo_ext = (1 - p) / p * (sum1 + sum2) + sum3
+#     return rbo_ext
+
+
+def rank_biased_overlap(ranks: pd.DataFrame, decay: float = 0.9) -> float:
     """
     Slightly limited home-made rank-biased overlap score.
-    col1 and col2 must have the same indices (ordering can be different)
-    This means there will always be a positive score due to the final term
+    Input is a 2-col dataframe (ensuring consistent indices)
+    This means there will always be a positive score due to the final term (all vs all)
     """
 
-    assert col1.index.equals(col2.index)
-    left_sets = tuple(set(group.index) for _, group in col1.groupby(col1))
-    right_sets = tuple(set(group.index) for _, group in col2.groupby(col2))
+    left_sets = tuple(set(group.index) for _, group in ranks.iloc[:, 0].groupby(ranks.iloc[:, 0]))
+    right_sets = tuple(set(group.index) for _, group in ranks.iloc[:, 1].groupby(ranks.iloc[:, 1]))
 
     num = 0.0
     den = 0.0
@@ -310,5 +279,8 @@ def rank_biased_overlap_weight(p: float, n: int) -> float:
     # infinite sum of p**i = 1 / (1 - p)
     return sum(p ** i for i in range(n)) * (1 - p)
 
-def cosine_similarity(col1, col2):
+def cosine_similarity(values: pd.DataFrame):
+    # DataFrame ensure indices are consistent. Assumes 2 cols
+    col1 = values.iloc[:,0]
+    col2 = values.iloc[:,1]
     return (col1 @ col2) / np.sqrt((col1 @ col1) * (col2 @ col2))

@@ -78,8 +78,8 @@ def test_rank_biased_overlap() -> None:
     # 0    {a,b,c}  {a}     {a,b,c}   {a}       1/3    1
     # 1    {d}      {b}     {a,b,c,d} {a,b}     1/2    1/2
     # 2             {c,d}   {a,b,c,d} {a,b,c,d} 1      1/4
-    assert utils.rank_biased_overlap(df[0], df[1], 1.0) == pytest.approx(11 / 18)
-    assert utils.rank_biased_overlap(df[0], df[1], 0.5) == pytest.approx(5 / 6 / (1 + 0.5 + 0.25))
+    assert utils.rank_biased_overlap(df, 1.0) == pytest.approx(11 / 18)
+    assert utils.rank_biased_overlap(df, 0.5) == pytest.approx(5 / 6 / (1 + 0.5 + 0.25))
 
 
 if __name__ == "__main__":
