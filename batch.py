@@ -8,7 +8,6 @@ from pathlib import Path
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 
@@ -69,6 +68,7 @@ def plot(
     stats.gini.plot(ax=axs[0, 0], label="Gini coefficient")
     axs[0, 0].tick_params(axis="x", rotation=45)
     axs[0, 0].set_ylabel("Proportion of areas")
+    axs[0, 0].set_ylim((-0.05, 1.05))
     axs[0, 0].legend()
 
     for name, row in stats.iterrows():
@@ -80,10 +80,12 @@ def plot(
     month_on_month.plot(ax=axs[1, 0])
     axs[1, 0].set_title("Month-on-month comparison")
     axs[1, 0].tick_params(axis="x", rotation=45)
+    axs[0, 0].set_ylim((-0.05, 1.05))
 
-    if spatial_unit != "STREET":
-        spatial_units.join(mean_rates).fillna(0).plot(ax=axs[1, 1], column="rate", alpha=1, legend=True)
-        axs[1, 1].set_title("Mean crime rate per km2 per year")
+    if spatial_unit == "STREET":
+        mean_rates.index = pd.MultiIndex.from_tuples(mean_rates.index, names=["u", "v", "key"])
+    spatial_units.join(mean_rates).fillna(0).plot(ax=axs[1, 1], column="rate", alpha=1, legend=True)
+    axs[1, 1].set_title("Mean crime rate per km² per year")
     axs[1, 1].set_axis_off()
 
     return fig
@@ -134,9 +136,9 @@ def main() -> None:
             rates = counts.div(areas, axis=0) / timespan * 1_000_000  # crimes/sq.km/year
 
             smoothed_counts = counts.T.rolling(window).mean().dropna().T
-            count_ranks = smoothed_counts.apply(lambda col: col.rank(method="min", ascending=False))
+            count_ranks = smoothed_counts.apply(lambda col: col.rank(ascending=False))
             smoothed_rates = rates.T.rolling(window).mean().dropna().T
-            rate_ranks = smoothed_rates.apply(lambda col: col.rank(method="min", ascending=False))
+            rate_ranks = smoothed_rates.apply(lambda col: col.rank(ascending=False))
 
             mean_rates = rates.mean(axis=1).rename("rate")
 
