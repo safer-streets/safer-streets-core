@@ -1,4 +1,3 @@
-from itertools import pairwise, product
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -6,8 +5,8 @@ import pytest
 from shapely import LineString
 from shapely.geometry import Point, Polygon
 
-import utils
 import spatial
+import utils
 
 
 def test_format_boundary_as_param() -> None:
@@ -70,7 +69,6 @@ def test_snap_to_street_segment() -> None:
 
 
 def test_rank_biased_overlap() -> None:
-
     df = pd.DataFrame(columns=list("abcd"), data=[[0, 0, 0, 1], [0, 1, 2, 2]]).T
 
     # Steps:
@@ -84,6 +82,3 @@ def test_rank_biased_overlap() -> None:
 
 if __name__ == "__main__":
     test_rank_biased_overlap()
-
-
-

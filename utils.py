@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from functools import cache, reduce
-from itertools import zip_longest
+from functools import cache
+from itertools import islice, zip_longest
 from pathlib import Path
-from typing import Any
+from typing import Literal, Self
 from zipfile import ZipFile
 
 import geopandas as gpd
@@ -18,13 +18,61 @@ from models import Neighbourhoods, RawPolygon
 
 CATEGORIES = ("Violence and sexual offences", "Anti-social behaviour", "Possession of weapons")
 
+Force = Literal[
+    "Avon and Somerset",
+    "Bedfordshire",
+    "BTP",
+    "Cambridgeshire",
+    "Cheshire",
+    "City of London",
+    "Cleveland",
+    "Cumbria",
+    "Derbyshire",
+    "Devon and Cornwall",
+    "Dorset",
+    "Durham",
+    "Dyfed Powys",
+    "Essex",
+    "Gloucestershire",
+    "Greater Manchester",
+    "Gwent",
+    "Hampshire",
+    "Hertfordshire",
+    "Humberside",
+    "Kent",
+    "Lancashire",
+    "Leicestershire",
+    "Lincolnshire",
+    "Merseyside",
+    "Metropolitan",
+    "Norfolk",
+    "North Wales",
+    "North Yorkshire",
+    "Northamptonshire",
+    "Northern Ireland",
+    "Northumbria",
+    "Nottinghamshire",
+    "South Wales",
+    "South Yorkshire",
+    "Staffordshire",
+    "Suffolk",
+    "Surrey",
+    "Sussex",
+    "Thames Valley",
+    "Warwickshire",
+    "West Mercia",
+    "West Midlands",
+    "West Yorkshire",
+    "Wiltshire",
+]
+
 
 def format_boundary_as_param(polygon: Polygon) -> str:
     xy = zip(*(c.tolist() for c in polygon.exterior.coords.xy))
     return ":".join(f"{x:.3f},{y:.3f}" for x, y in xy)
 
 
-def _get_boundary(force: str, neighbourhood_id: str) -> Polygon:
+def _get_boundary(force: Force, neighbourhood_id: str) -> Polygon:
     try:
         return RawPolygon(
             requests.get(f"{POLICE_API_BASE_URL}/{force}/{neighbourhood_id}/boundary").json()
@@ -46,15 +94,56 @@ def get_geog_lookup(geog_from: str, geogs_to: list[str]) -> pd.DataFrame:
 
 POLICE_API_BASE_URL = "http://data.police.uk/api"
 POLICE_DATA_BASE_URL = "http://data.police.uk/data"
-CRIME_ARCHIVE = Path("./data/police_data_latest.zip")
+ARCHIVE_TEMPLATE = "./data/police_uk_crime_data_{}.zip"
 
 
-def tokenize_force_name(force_name: str) -> str:
+
+class Month:
+    def __init__(self, y: int, m: int) -> None:
+        assert 1900 <= y <= 2100
+        assert 1 <= m <= 12
+        self.y = y
+        self.m = m
+
+    @property
+    def year(self) -> int:
+        return self.m
+
+    @property
+    def month(self) -> int:
+        return self.m
+
+    def __lt__(self, other: Self) -> bool:
+        if not isinstance(other, type(self)):
+            return NotImplemented
+        return self.y < other.y or (self.y == other.y and self.m < other.m)
+
+    def __repr__(self) -> str:
+        return f"{self.y}-{self.m:02}"
+
+
+class MonthIter(Iterator[Month]):
+    def __init__(self, month: Month, *, end: Month | None = None) -> None:
+        self.month = month
+        self.end = end
+
+    def __next__(self) -> Month:
+        ret = Month(self.month.y, self.month.m)
+        if self.end and self.end < ret:
+            raise StopIteration
+        self.month.m += 1
+        if self.month.m > 12:
+            self.month.m = 1
+            self.month.y += 1
+        return ret
+
+
+def tokenize_force_name(force_name: Force) -> str:
     """Tokenize the force name for use in file paths."""
     return force_name.replace(" ", "-").lower()
 
 
-def get_neighbourhood_boundaries(force: str) -> gpd.GeoDataFrame:
+def get_neighbourhood_boundaries(force: Force) -> gpd.GeoDataFrame:
     neighbourhoods = Neighbourhoods(requests.get(f"{POLICE_API_BASE_URL}/{force}/neighbourhoods").json())
     neighbourhood_boundaries = gpd.GeoDataFrame(
         index=tuple(n.id for n in neighbourhoods),
@@ -65,15 +154,17 @@ def get_neighbourhood_boundaries(force: str) -> gpd.GeoDataFrame:
     return neighbourhood_boundaries
 
 
-def extract_crime_data(force: str, *, keep_lonlat: bool = False) -> gpd.GeoDataFrame:
+def extract_crime_data(force: Force, *, keep_lonlat: bool = False) -> gpd.GeoDataFrame:
     """
     Extracts crime data for a given force from the latest archive.
     Use keep_lonlat for rendering  streamlit maps
     """
-    if not CRIME_ARCHIVE.exists():
-        get_latest_archive()
+    archive = Path(ARCHIVE_TEMPLATE.format("latest"))
 
-    with ZipFile(CRIME_ARCHIVE) as bulk_data:
+    if not archive.exists():
+        get_archive("latest")
+
+    with ZipFile(archive) as bulk_data:
         crimes = []
         for file in bulk_data.namelist():
             if f"{force}-street" in file:
@@ -92,14 +183,15 @@ def extract_crime_data(force: str, *, keep_lonlat: bool = False) -> gpd.GeoDataF
     ).to_crs(epsg=27700)
 
 
-def get_latest_archive() -> bool:
+def get_archive(name: str = "latest") -> bool:
     """
     Downloads the latest police data archive and saves it to CRIME_ARCHIVE.
     To force a download, delete the existing CRIME_ARCHIVE file, or just explicitly call this function.
     """
-    url = f"{POLICE_DATA_BASE_URL}/archive/latest.zip"
+    url = f"{POLICE_DATA_BASE_URL}/archive/{name}.zip"
     MB = 1024 * 1024
 
+    local_file = Path(ARCHIVE_TEMPLATE.format(name))
     try:
         response = requests.get(url, stream=True)
         response.raise_for_status()
@@ -107,7 +199,7 @@ def get_latest_archive() -> bool:
         size = int(response.headers.get("content-length", 0))
         print(f"Downloading archive {size // MB}MB", end="")
 
-        with open(CRIME_ARCHIVE, "wb") as f:
+        with open(local_file, "wb") as f:
             for chunk in response.iter_content(chunk_size=MB):
                 if chunk:
                     f.write(chunk)
@@ -118,19 +210,56 @@ def get_latest_archive() -> bool:
     except requests.exceptions.RequestException as e:
         print(f"Error during download: {e}")
     except OSError as e:
-        print(f"Error writing file {CRIME_ARCHIVE}: {e}")
+        print(f"Error writing file {local_file}: {e}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
     return False
 
 
-def monthgen(year: int, month: int) -> Iterator[str]:
-    while True:
-        yield f"{year}-{month:02}"
-        month += 1
-        if month == 13:
-            month = 1
-            year += 1
+def extract_monthly_crime_data(force: Force, month: Month, *, keep_lonlat: bool = False) -> pd.DataFrame:
+    # NB data.police.uk says:
+    # > "With the exception of the latest month’s archive, the data on this page is out of date and should not be used."
+    # newest archive to contain oldest data is Apr 2017, which has data from Dec 2010
+    # for dates after Apr 2017, get the archive 2y 11months after required date, extract the files for the first month
+    # in the data (this will be the newest archive)
+
+    if month < Month(2010, 12):
+        raise ValueError(f"Data for {month} is not available")
+    elif Month(2022, 4) < month:  # TODO this will need regular updating
+        archive = "latest"
+    elif month < Month(2017, 4):
+        archive = "2017-04"
+    else:
+        m = MonthIter(month)
+        archive = str(list(next(m) for _ in range(36))[-1])
+
+    local_file = ARCHIVE_TEMPLATE.format(archive)
+    if not Path(local_file).exists():
+        get_archive(archive)
+
+    crime_data = pd.DataFrame()
+    with ZipFile(local_file) as bulk_data:
+        for file in bulk_data.namelist():
+            if f"{month}-{tokenize_force_name(force)}-street" in file:
+                crime_data = (
+                    pd.read_csv(bulk_data.open(file))
+                    .set_index("Crime ID")
+                    .drop(columns=["Last outcome category", "Context"])
+                )
+                break
+    if crime_data.empty:
+        return ValueError(f"No crime data available for {force} in {month}")
+
+    # drop crimes with no location
+    crime_data = crime_data.dropna(subset=["Longitude", "Latitude"])
+
+    return gpd.GeoDataFrame(
+        crime_data.rename(columns={"Longitude": "lon", "Latitude": "lat"})
+        if keep_lonlat
+        else crime_data.drop(columns=["Longitude", "Latitude"]),
+        geometry=gpd.points_from_xy(crime_data.Longitude, crime_data.Latitude),
+        crs="EPSG:4326",
+    ).to_crs(epsg=27700)
 
 
 def lorenz_curve(data: pd.Series[int], *, percentiles: bool = False) -> pd.Series[float]:
@@ -170,7 +299,7 @@ def spearman_rank_correlation_matrix(counts: pd.DataFrame) -> npt.NDArray:
     n = len(counts.columns)
     correlations = np.eye(n)
 
-    ranks = counts.apply(lambda col: col.rank(method="min", ascending=False))
+    ranks = counts.apply(lambda col: col.rank(ascending=False))
 
     for i in range(n):
         for j in range(i):
@@ -271,16 +400,18 @@ def rank_biased_overlap(ranks: pd.DataFrame, decay: float = 0.9) -> float:
         union |= left | right
         # ...and the intersection
         intersection |= (left & right) | inter1
-        num += decay ** i * len(intersection) / len(union)
-        den += decay ** i
+        num += decay**i * len(intersection) / len(union)
+        den += decay**i
     return num / den
+
 
 def rank_biased_overlap_weight(p: float, n: int) -> float:
     # infinite sum of p**i = 1 / (1 - p)
-    return sum(p ** i for i in range(n)) * (1 - p)
+    return sum(p**i for i in range(n)) * (1 - p)
+
 
 def cosine_similarity(values: pd.DataFrame):
     # DataFrame ensure indices are consistent. Assumes 2 cols
-    col1 = values.iloc[:,0]
-    col2 = values.iloc[:,1]
+    col1 = values.iloc[:, 0]
+    col2 = values.iloc[:, 1]
     return (col1 @ col2) / np.sqrt((col1 @ col1) * (col2 @ col2))

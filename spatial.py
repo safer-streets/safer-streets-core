@@ -7,6 +7,8 @@ import numpy as np
 import osmnx as ox
 from shapely import Polygon, transform
 
+from utils import Force
+
 SpatialUnit = Literal["MSOA", "LSOA", "OA", "GRID", "HEX", "STREET"]
 CensusGeography = Literal["MSOA", "LSOA", "OA"]
 Resolution = Literal["FE", "GC", "SC"]
@@ -103,7 +105,7 @@ def get_hex_grid(
 
 
 # not available in the police API...
-def get_force_boundary(force_name: str) -> gpd.GeoDataFrame:
+def get_force_boundary(force_name: Force) -> gpd.GeoDataFrame:
     force_boundaries = gpd.read_file("./data/Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
     if force_name not in force_boundaries.PFA23NM.to_list():
         raise ValueError(f"{force_name} is not valid. Must be one of {', '.join(force_boundaries.PFA23NM)}")
