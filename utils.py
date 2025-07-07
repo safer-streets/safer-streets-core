@@ -145,6 +145,9 @@ class Month:
     def __repr__(self) -> str:
         return f"{self.y}-{self.m + 1:02}"
 
+    def __hash__(self) -> int:
+        return hash(self.y * 12 + self.m)
+
 
 class MonthRange(Iterator[Month]):
     def __init__(self, month: Month, *, end: Month | None = None) -> None:

@@ -9,7 +9,7 @@ from shapely import Polygon, transform
 
 from utils import Force
 
-SpatialUnit = Literal["MSOA", "LSOA", "OA", "GRID", "HEX", "STREET"]
+SpatialUnit = Literal["MSOA", "LSOA", "OA", "GRID", "H3", "HEX", "STREET"]
 CensusGeography = Literal["MSOA", "LSOA", "OA"]
 Resolution = Literal["FE", "GC", "SC"]
 
@@ -73,7 +73,7 @@ def get_square_grid(
     return _add_centroids(grid)
 
 
-def get_hex_grid(
+def get_h3_grid(
     boundary: gpd.GeoDataFrame, *, resolution: int, offset: tuple[float, float] | None = None
 ) -> gpd.GeoDataFrame:
     """
@@ -101,6 +101,40 @@ def get_hex_grid(
         .sjoin(boundary[["geometry"]])
         .drop(columns="index_right")
     )
+    return _add_centroids(grid)
+
+
+def get_hex_grid(
+    boundary: gpd.GeoDataFrame, *, size: float, offset: tuple[float, float] | None = None
+) -> gpd.GeoDataFrame:
+    "size is the length of one side. The corresponds to an area of 2*sqrt(3)*s**2"
+
+    xoff, yoff = offset or (0.0, 0.0)
+    xmin, ymin, xmax, ymax = boundary.total_bounds
+
+    dx = size * 3 / 2
+    dy = size * np.sqrt(3)
+    h = dy / 2
+
+    def hexagon(x0, y0) -> list[tuple[float, float]]:
+        "(x0, y0) is hexagon centre"
+        return [
+            (x0 + size, y0),
+            (x0 + size / 2, y0 + h),
+            (x0 - size / 2, y0 + h),
+            (x0 - size, y0),
+            (x0 - size / 2, y0 - h),
+            (x0 + size / 2, y0 - h),
+        ]
+
+    X = np.arange(xmin // size * size - size + xoff, xmax // size * size + 3 * size + xoff, 2 * dx)
+    Y = np.arange(ymin // size * size - size + yoff, ymax // size * size + 3 * size + yoff, dy)
+    p = [Polygon(hexagon(x, y)) for x in X for y in Y]
+    X = np.arange(xmin // size * size - size + xoff + dx, xmax // size * size + 3 * size + xoff + dx, 2 * dx)
+    Y = np.arange(ymin // size * size - size + yoff + h, ymax // size * size + 3 * size + yoff + h, dy)
+    p.extend([Polygon(hexagon(x, y)) for x in X for y in Y])
+
+    grid = gpd.GeoDataFrame(geometry=p, crs="EPSG:27700").sjoin(boundary[["geometry"]]).drop(columns="index_right")
     return _add_centroids(grid)
 
 
@@ -149,6 +183,9 @@ def map_to_spatial_unit(
             crime_data = features.sjoin(crime_data, how="right").rename(columns={"index_left": "spatial_unit"})
         case "HEX":
             features = get_hex_grid(boundary, **kwargs)
+            crime_data = features.sjoin(crime_data, how="right").rename(columns={"index_left": "spatial_unit"})
+        case "H3":
+            features = get_h3_grid(boundary, **kwargs)
             crime_data = features.sjoin(crime_data, how="right").rename(columns={"h3_polyfill": "spatial_unit"})
         case "STREET":
             # get street network in lon-lat polygon then project back to BNG
