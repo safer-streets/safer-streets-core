@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from calendar import monthrange
 from collections.abc import Iterator
 from functools import cache
-from itertools import islice, zip_longest
+from itertools import zip_longest
 from pathlib import Path
-from typing import Literal, Self
+from typing import Any, Literal, Self
 from zipfile import ZipFile
 
 import geopandas as gpd
@@ -97,44 +98,67 @@ POLICE_DATA_BASE_URL = "http://data.police.uk/data"
 ARCHIVE_TEMPLATE = "./data/police_uk_crime_data_{}.zip"
 
 
-
 class Month:
     def __init__(self, y: int, m: int) -> None:
         assert 1900 <= y <= 2100
         assert 1 <= m <= 12
         self.y = y
-        self.m = m
+        self.m = m - 1  # internally use 0-11
 
     @property
     def year(self) -> int:
-        return self.m
+        return self.y
 
     @property
     def month(self) -> int:
-        return self.m
+        return self.m + 1
+
+    @property
+    def days(self) -> int:
+        "Returns no of days in month"
+        return monthrange(self.y, self.m + 1)[1]
+
+    @staticmethod
+    def parse_str(yyyy_mm: str) -> Month:
+        return Month(*(int(n) for n in yyyy_mm.split("-")))
+
+    def __add__(self, months: int) -> Month:
+        m = self.m + months
+        years = m // 12
+        m = m % 12
+        y = self.y + years
+        return Month(y, m + 1)
+
+    def __eq__(self, other: Self) -> bool:
+        if not isinstance(other, type(self)):
+            return NotImplemented
+        return self.y == other.y and self.m == other.m
 
     def __lt__(self, other: Self) -> bool:
         if not isinstance(other, type(self)):
             return NotImplemented
         return self.y < other.y or (self.y == other.y and self.m < other.m)
 
+    def __ge__(self, other: Self) -> bool:
+        return not self < other
+
     def __repr__(self) -> str:
-        return f"{self.y}-{self.m:02}"
+        return f"{self.y}-{self.m + 1:02}"
 
 
-class MonthIter(Iterator[Month]):
+class MonthRange(Iterator[Month]):
     def __init__(self, month: Month, *, end: Month | None = None) -> None:
         self.month = month
         self.end = end
 
+    def __iter__(self) -> Self:
+        return self
+
     def __next__(self) -> Month:
-        ret = Month(self.month.y, self.month.m)
-        if self.end and self.end < ret:
+        ret = Month(self.month.year, self.month.month)
+        if self.end and not ret < self.end:
             raise StopIteration
-        self.month.m += 1
-        if self.month.m > 12:
-            self.month.m = 1
-            self.month.y += 1
+        self.month = self.month + 1
         return ret
 
 
@@ -154,25 +178,13 @@ def get_neighbourhood_boundaries(force: Force) -> gpd.GeoDataFrame:
     return neighbourhood_boundaries
 
 
-def extract_crime_data(force: Force, *, keep_lonlat: bool = False) -> gpd.GeoDataFrame:
-    """
-    Extracts crime data for a given force from the latest archive.
-    Use keep_lonlat for rendering  streamlit maps
-    """
-    archive = Path(ARCHIVE_TEMPLATE.format("latest"))
-
-    if not archive.exists():
-        get_archive("latest")
-
-    with ZipFile(archive) as bulk_data:
-        crimes = []
-        for file in bulk_data.namelist():
-            if f"{force}-street" in file:
-                crimes.append(pd.read_csv(bulk_data.open(file)))
-        crime_data = pd.concat(crimes).set_index("Crime ID").drop(columns=["Last outcome category", "Context"])
-
+def _format_crime_data(crime_data: pd.DataFrame, keep_lonlat: bool, filters: dict[str, Any]) -> gpd.GeoDataFrame:
     # drop crimes with no location
     crime_data = crime_data.dropna(subset=["Longitude", "Latitude"])
+
+    # apply any filters
+    for column, value in (filters or {}).items():
+        crime_data = crime_data[crime_data[column] == value]
 
     return gpd.GeoDataFrame(
         crime_data.rename(columns={"Longitude": "lon", "Latitude": "lat"})
@@ -183,7 +195,31 @@ def extract_crime_data(force: Force, *, keep_lonlat: bool = False) -> gpd.GeoDat
     ).to_crs(epsg=27700)
 
 
-def get_archive(name: str = "latest") -> bool:
+def extract_crime_data(
+    force: Force, *, keep_lonlat: bool = False, filters: dict[str, Any] | None = None
+) -> gpd.GeoDataFrame:
+    """
+    Extracts crime data for a given force from the latest archive.
+    Use keep_lonlat for rendering  streamlit maps
+    """
+    archive = Path(ARCHIVE_TEMPLATE.format("latest"))
+
+    if not archive.exists():
+        download_archive("latest")
+
+    force_identifier = tokenize_force_name(force)
+
+    with ZipFile(archive) as bulk_data:
+        crimes = []
+        for file in bulk_data.namelist():
+            if f"{force_identifier}-street" in file:
+                crimes.append(pd.read_csv(bulk_data.open(file)))
+        crime_data = pd.concat(crimes).set_index("Crime ID").drop(columns=["Last outcome category", "Context"])
+
+    return _format_crime_data(crime_data, keep_lonlat, filters or {})
+
+
+def download_archive(name: str = "latest") -> bool:
     """
     Downloads the latest police data archive and saves it to CRIME_ARCHIVE.
     To force a download, delete the existing CRIME_ARCHIVE file, or just explicitly call this function.
@@ -197,7 +233,7 @@ def get_archive(name: str = "latest") -> bool:
         response.raise_for_status()
 
         size = int(response.headers.get("content-length", 0))
-        print(f"Downloading archive {size // MB}MB", end="")
+        print(f"Downloading archive to {local_file} ({size // MB}MB)", end="")
 
         with open(local_file, "wb") as f:
             for chunk in response.iter_content(chunk_size=MB):
@@ -216,26 +252,29 @@ def get_archive(name: str = "latest") -> bool:
     return False
 
 
-def extract_monthly_crime_data(force: Force, month: Month, *, keep_lonlat: bool = False) -> pd.DataFrame:
+def extract_monthly_crime_data(
+    force: Force, month: Month, *, keep_lonlat: bool = False, filters: dict[str, Any] | None = None
+) -> pd.DataFrame:
     # NB data.police.uk says:
     # > "With the exception of the latest month’s archive, the data on this page is out of date and should not be used."
     # newest archive to contain oldest data is Apr 2017, which has data from Dec 2010
     # for dates after Apr 2017, get the archive 2y 11months after required date, extract the files for the first month
     # in the data (this will be the newest archive)
 
+    # filters allows basic filtering on values in specific columns, e.g. {"Crime type": "Anti-social behaviour"}
+
     if month < Month(2010, 12):
         raise ValueError(f"Data for {month} is not available")
     elif Month(2022, 4) < month:  # TODO this will need regular updating
         archive = "latest"
-    elif month < Month(2017, 4):
+    elif month < Month(2014, 6):
         archive = "2017-04"
     else:
-        m = MonthIter(month)
-        archive = str(list(next(m) for _ in range(36))[-1])
+        archive = str(list(MonthRange(month, end=month + 36))[-1])
 
     local_file = ARCHIVE_TEMPLATE.format(archive)
     if not Path(local_file).exists():
-        get_archive(archive)
+        download_archive(archive)
 
     crime_data = pd.DataFrame()
     with ZipFile(local_file) as bulk_data:
@@ -248,18 +287,9 @@ def extract_monthly_crime_data(force: Force, month: Month, *, keep_lonlat: bool 
                 )
                 break
     if crime_data.empty:
-        return ValueError(f"No crime data available for {force} in {month}")
+        raise ValueError(f"No crime data available for {force} in {month}")
 
-    # drop crimes with no location
-    crime_data = crime_data.dropna(subset=["Longitude", "Latitude"])
-
-    return gpd.GeoDataFrame(
-        crime_data.rename(columns={"Longitude": "lon", "Latitude": "lat"})
-        if keep_lonlat
-        else crime_data.drop(columns=["Longitude", "Latitude"]),
-        geometry=gpd.points_from_xy(crime_data.Longitude, crime_data.Latitude),
-        crs="EPSG:4326",
-    ).to_crs(epsg=27700)
+    return _format_crime_data(crime_data, keep_lonlat, filters or {})
 
 
 def lorenz_curve(data: pd.Series[int], *, percentiles: bool = False) -> pd.Series[float]:
