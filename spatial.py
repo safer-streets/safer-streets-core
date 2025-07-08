@@ -107,7 +107,7 @@ def get_h3_grid(
 def get_hex_grid(
     boundary: gpd.GeoDataFrame, *, size: float, offset: tuple[float, float] | None = None
 ) -> gpd.GeoDataFrame:
-    "size is the length of one side. The corresponds to an area of 2*sqrt(3)*s**2"
+    "size is the length of one side. The corresponds to an area of 3/2*sqrt(3)*s**2"
 
     xoff, yoff = offset or (0.0, 0.0)
     xmin, ymin, xmax, ymax = boundary.total_bounds

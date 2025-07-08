@@ -222,6 +222,16 @@ def extract_crime_data(
     return _format_crime_data(crime_data, keep_lonlat, filters or {})
 
 
+def random_crime_data(n: int, boundary: gpd.GeoDataFrame, months: list, *, seed: int = 19937) -> gpd.GeoDataFrame:
+    rng = np.random.default_rng(seed)
+    random = gpd.GeoDataFrame(
+        geometry=boundary.sample_points(n, rng=rng).explode().to_list(),
+        data={"Month": rng.choice(months, n), "Crime type": "Random"},
+        crs=boundary.crs,
+    )
+    return random
+
+
 def download_archive(name: str = "latest") -> bool:
     """
     Downloads the latest police data archive and saves it to CRIME_ARCHIVE.
