@@ -222,7 +222,9 @@ def extract_crime_data(
     return _format_crime_data(crime_data, keep_lonlat, filters or {})
 
 
-def random_crime_data_by_point(n: int, boundary: gpd.GeoDataFrame, months: list, *, seed: int = 19937) -> gpd.GeoDataFrame:
+def random_crime_data_by_point(
+    n: int, boundary: gpd.GeoDataFrame, months: list, *, seed: int = 19937
+) -> gpd.GeoDataFrame:
     """Sample within boundary. Larger features will tend to get more crimes"""
     rng = np.random.default_rng(seed)
     random = gpd.GeoDataFrame(
@@ -233,14 +235,15 @@ def random_crime_data_by_point(n: int, boundary: gpd.GeoDataFrame, months: list,
     return random
 
 
-def random_crime_data_by_feature(n: int, features: gpd.GeoDataFrame, months: list, *, seed: int = 19937) -> pd.DataFrame:
+def random_crime_data_by_feature(
+    n: int, features: gpd.GeoDataFrame, months: list, *, seed: int = 19937
+) -> pd.DataFrame:
     """Sample features. Larger features won't tend to get more crimes"""
     rng = np.random.default_rng(seed)
 
     random = pd.DataFrame(
-        data={"Month": rng.choice(months, n),
-              "spatial_unit": rng.choice(features.index, n),
-              "Crime type": "Random"})
+        data={"Month": rng.choice(months, n), "spatial_unit": rng.choice(features.index, n), "Crime type": "Random"}
+    )
 
     return random
 
