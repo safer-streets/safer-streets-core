@@ -198,3 +198,29 @@ def map_to_spatial_unit(
     assert total_crimes == len(crime_data)
 
     return crime_data, features
+
+
+def normalised_clumpiness(features: gpd.GeoDataFrame, scale: float) -> float:
+    u = features.union_all()
+
+    if scale <= 0.0 or scale * scale > u.area:
+        raise ValueError(f"Impossible scale parameter: {scale}. Bounds are (0, {np.sqrt(u.area)})")
+
+    # compute the perimeter bounds
+    max_p = 4 * u.area / scale # all separate
+    min_p = 4 * np.sqrt(u.area) # single square
+
+    # # TODO this needs testing
+    # elif spatial_unit == "HEX": # TODO H3? irregular?
+    #     max_p = 4 / np.sqrt(3) * u.area / scale
+    #     min_p = np.sqrt(2 * u.area / (3 * np.sqrt(3)))
+
+    r = max_p - min_p
+
+    if max_p < u.length:
+        # TODO and return 0?
+        raise ValueError(f"Scale parameter {scale} is too large to capture features is the data.")
+
+
+    # for a single unit clumpiness isnt defined but we return 1
+    return (max_p - u.length) / r if r else 1.0

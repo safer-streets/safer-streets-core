@@ -294,7 +294,7 @@ def extract_monthly_crime_data(
 
     if month < Month(2010, 12):
         raise ValueError(f"Data for {month} is not available")
-    elif Month(2022, 4) < month:  # TODO this will need regular updating
+    elif Month(2022, 5) < month:  # TODO this will need regular updating
         archive = "latest"
     elif month < Month(2014, 6):
         archive = "2017-04"
