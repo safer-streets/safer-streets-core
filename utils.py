@@ -129,7 +129,7 @@ class Month:
         y = self.y + years
         return Month(y, m + 1)
 
-    def __eq__(self, other: Self) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, type(self)):
             return NotImplemented
         return self.y == other.y and self.m == other.m
@@ -171,7 +171,9 @@ def tokenize_force_name(force_name: Force) -> str:
 
 
 def get_neighbourhood_boundaries(force: Force) -> gpd.GeoDataFrame:
-    neighbourhoods = Neighbourhoods(requests.get(f"{POLICE_API_BASE_URL}/{force}/neighbourhoods").json())
+    neighbourhoods = Neighbourhoods(
+        requests.get(f"{POLICE_API_BASE_URL}/{tokenize_force_name(force)}/neighbourhoods").json()
+    )
     neighbourhood_boundaries = gpd.GeoDataFrame(
         index=tuple(n.id for n in neighbourhoods),
         data={"name": (n.name for n in neighbourhoods)},

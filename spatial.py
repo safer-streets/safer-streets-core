@@ -1,5 +1,5 @@
 from itertools import pairwise
-from typing import Literal
+from typing import Any, Literal
 
 import geopandas as gpd
 import h3pandas  # noqa (implicitly required)
@@ -69,7 +69,11 @@ def get_square_grid(
 
     p = [Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)]) for x0, x1 in pairwise(X) for y0, y1 in pairwise(Y)]
 
-    grid = gpd.GeoDataFrame(geometry=p, crs="EPSG:27700").sjoin(boundary[["geometry"]]).drop(columns="index_right")
+    grid = (
+        gpd.GeoDataFrame(geometry=p, crs="EPSG:27700")
+        .sjoin(boundary[["geometry"]])
+        .drop(columns="index_right", errors="ignore")
+    )
     return _add_centroids(grid)
 
 
@@ -138,6 +142,16 @@ def get_hex_grid(
     return _add_centroids(grid)
 
 
+def get_street_network(boundary: gpd.GeoDataFrame, **args: Any) -> gpd.GeoDataFrame:
+    # get street network in lon-lat polygon then project back to BNG
+    G = ox.graph_from_polygon(
+        boundary.to_crs(epsg=4326).iloc[0].geometry, network_type="drive", retain_all=True, **args
+    )
+    G = ox.project_graph(G, to_crs="epsg:27700")
+    _nodes, features = ox.graph_to_gdfs(G)
+    return features
+
+
 # not available in the police API...
 def get_force_boundary(force_name: Force) -> gpd.GeoDataFrame:
     force_boundaries = gpd.read_file("./data/Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
@@ -188,10 +202,7 @@ def map_to_spatial_unit(
             features = get_h3_grid(boundary, **kwargs)
             crime_data = features.sjoin(crime_data, how="right").rename(columns={"h3_polyfill": "spatial_unit"})
         case "STREET":
-            # get street network in lon-lat polygon then project back to BNG
-            G = ox.graph_from_polygon(boundary.to_crs(epsg=4326).iloc[0].geometry, network_type="drive")
-            G = ox.project_graph(G, to_crs="epsg:27700")
-            _nodes, features = ox.graph_to_gdfs(G)
+            features = get_street_network(boundary)
             crime_data = snap_to_street_segment(crime_data, features).rename(columns={"street_segment": "spatial_unit"})
 
     # all crimes should be accounted for
@@ -207,8 +218,8 @@ def normalised_clumpiness(features: gpd.GeoDataFrame, scale: float) -> float:
         raise ValueError(f"Impossible scale parameter: {scale}. Bounds are (0, {np.sqrt(u.area)})")
 
     # compute the perimeter bounds
-    max_p = 4 * u.area / scale # all separate
-    min_p = 4 * np.sqrt(u.area) # single square
+    max_p = 4 * u.area / scale  # all separate
+    min_p = 4 * np.sqrt(u.area)  # single square
 
     # # TODO this needs testing
     # elif spatial_unit == "HEX": # TODO H3? irregular?
@@ -220,7 +231,6 @@ def normalised_clumpiness(features: gpd.GeoDataFrame, scale: float) -> float:
     if max_p < u.length:
         # TODO and return 0?
         raise ValueError(f"Scale parameter {scale} is too large to capture features is the data.")
-
 
     # for a single unit clumpiness isnt defined but we return 1
     return (max_p - u.length) / r if r else 1.0
