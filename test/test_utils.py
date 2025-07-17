@@ -109,6 +109,19 @@ def test_month_addition() -> None:
     assert m4.month == 7
 
 
+def test_month_subtraction() -> None:
+    m = utils.Month(2023, 2)
+    m2 = m - 1
+    assert m2.year == 2023
+    assert m2.month == 1
+    m3 = m - 2
+    assert m3.year == 2022
+    assert m3.month == 12
+    m4 = m - 20
+    assert m4.year == 2021
+    assert m4.month == 6
+
+
 def test_month_comparison() -> None:
     m1 = utils.Month(2023, 5)
     m2 = utils.Month(2023, 6)
@@ -121,7 +134,7 @@ def test_month_comparison() -> None:
 def test_monthrange_basic_iteration() -> None:
     start = utils.Month(2023, 5)
     end = utils.Month(2023, 8)
-    mr = utils.MonthRange(start, end=end)
+    mr = utils.monthgen(start, end=end)
     months = list(mr)
     assert len(months) == 3
     assert months[0].year == 2023 and months[0].month == 5
@@ -129,33 +142,33 @@ def test_monthrange_basic_iteration() -> None:
     assert months[2].year == 2023 and months[2].month == 7
 
 
-def test_monthrange_no_end() -> None:
+def test_monthgen_no_end() -> None:
     start = utils.Month(2023, 1)
-    mr = utils.MonthRange(start)
+    mr = utils.monthgen(start)
     # Should be an infinite iterator, so just take first 5
     months = [next(mr) for _ in range(50)]
     assert all(m.month == (i % 12) + 1 and m.year == 2023 + i // 12 for i, m in enumerate(months))
 
 
-def test_monthrange_end_equal_start() -> None:
+def test_monthgen_end_equal_start() -> None:
     start = utils.Month(2023, 5)
-    mr = utils.MonthRange(start, end=start)
+    mr = utils.monthgen(start, end=start)
     with pytest.raises(StopIteration):
         next(mr)
 
 
-def test_monthrange_end_before_start() -> None:
+def test_monthgen_end_before_start() -> None:
     start = utils.Month(2023, 5)
     end = utils.Month(2023, 4)
-    mr = utils.MonthRange(start, end=end)
+    mr = utils.monthgen(start, end=end)
     with pytest.raises(StopIteration):
         next(mr)
 
 
-def test_monthrange_pairwise() -> None:
+def test_monthgen_pairwise() -> None:
     start = utils.Month(2020, 12)
     end = utils.Month(2022, 5)
-    m = utils.MonthRange(start, end=end)
+    m = utils.monthgen(start, end=end)
     pairs = list(pairwise(m))
     assert pairs[0][0] == start
     assert pairs[-1][-1] + 1 == end
@@ -165,4 +178,4 @@ def test_monthrange_pairwise() -> None:
 
 
 if __name__ == "__main__":
-    test_monthrange_pairwise()
+    test_monthgen_pairwise()

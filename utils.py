@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from functools import cache
 from itertools import zip_longest
 from pathlib import Path
@@ -96,6 +96,7 @@ def get_geog_lookup(geog_from: str, geogs_to: list[str]) -> pd.DataFrame:
 POLICE_API_BASE_URL = "http://data.police.uk/api"
 POLICE_DATA_BASE_URL = "http://data.police.uk/data"
 ARCHIVE_TEMPLATE = "./data/police_uk_crime_data_{}.zip"
+DATA_TEMPLATE = "./data/extracted/{month}-{force}-street.parquet"
 
 
 class Month:
@@ -123,8 +124,19 @@ class Month:
         return Month(*(int(n) for n in yyyy_mm.split("-")))
 
     def __add__(self, months: int) -> Month:
+        if months < 0:
+            return self - abs(months)
         m = self.m + months
         years = m // 12
+        m = m % 12
+        y = self.y + years
+        return Month(y, m + 1)
+
+    def __sub__(self, months: int) -> Month:
+        if months < 0:
+            return self + abs(months)
+        m = self.m - months
+        years = m // 12  # this will be negative if m < 0
         m = m % 12
         y = self.y + years
         return Month(y, m + 1)
@@ -149,20 +161,15 @@ class Month:
         return hash(self.y * 12 + self.m)
 
 
-class MonthRange(Iterator[Month]):
-    def __init__(self, month: Month, *, end: Month | None = None) -> None:
-        self.month = month
-        self.end = end
-
-    def __iter__(self) -> Self:
-        return self
-
-    def __next__(self) -> Month:
-        ret = Month(self.month.year, self.month.month)
-        if self.end and not ret < self.end:
-            raise StopIteration
-        self.month = self.month + 1
-        return ret
+def monthgen(start: Month, end: Month | None = None) -> Iterator[Month]:
+    """
+    Generates months starting from `start` until `end`.
+    If `end` is None, it generates indefinitely.
+    """
+    current = start
+    while end is None or current < end:
+        yield current
+        current += 1
 
 
 def tokenize_force_name(force_name: Force) -> str:
@@ -283,44 +290,56 @@ def download_archive(name: str = "latest") -> bool:
     return False
 
 
-def extract_monthly_crime_data(
-    force: Force, month: Month, *, keep_lonlat: bool = False, filters: dict[str, Any] | None = None
-) -> pd.DataFrame:
-    # NB data.police.uk says:
-    # > "With the exception of the latest month’s archive, the data on this page is out of date and should not be used."
-    # newest archive to contain oldest data is Apr 2017, which has data from Dec 2010
-    # for dates after Apr 2017, get the archive 2y 11months after required date, extract the files for the first month
-    # in the data (this will be the newest archive)
+def load_crime_data(
+    force: Force, months: Iterable[Month], *, keep_lonlat: bool = False, filters: dict[str, Any] | None = None
+) -> gpd.GeoDataFrame:
+    data = []
+    force_identifier = tokenize_force_name(force)
+    for month in months:
+        path = Path(DATA_TEMPLATE.format(month=month, force=force_identifier))
+        data.append(pd.read_parquet(path))
 
-    # filters allows basic filtering on values in specific columns, e.g. {"Crime type": "Anti-social behaviour"}
+    return _format_crime_data(pd.concat(data), keep_lonlat, filters or {})
 
-    if month < Month(2010, 12):
-        raise ValueError(f"Data for {month} is not available")
-    elif Month(2022, 5) < month:  # TODO this will need regular updating
-        archive = "latest"
-    elif month < Month(2014, 6):
-        archive = "2017-04"
-    else:
-        archive = str(list(MonthRange(month, end=month + 36))[-1])
 
-    local_file = ARCHIVE_TEMPLATE.format(archive)
-    if not Path(local_file).exists():
-        download_archive(archive)
+# def extract_monthly_crime_data(
+#     force: Force, month: Month, *, keep_lonlat: bool = False, filters: dict[str, Any] | None = None
+# ) -> pd.DataFrame:
+#     # NB data.police.uk says:
+#  # > "With the exception of the latest month’s archive, the data on this page is out of date and should not be used."
+#     # newest archive to contain oldest data is Apr 2017, which has data from Dec 2010
+#     # for dates after Apr 2017, get the archive 2y 11months after required date, extract the files for the first month
+#     # in the data (this will be the newest archive)
 
-    crime_data = pd.DataFrame()
-    with ZipFile(local_file) as bulk_data:
-        for file in bulk_data.namelist():
-            if f"{month}-{tokenize_force_name(force)}-street" in file:
-                crime_data = (
-                    pd.read_csv(bulk_data.open(file))
-                    .set_index("Crime ID")
-                    .drop(columns=["Last outcome category", "Context"])
-                )
-                break
-    if crime_data.empty:
-        raise ValueError(f"No crime data available for {force} in {month}")
+#     # filters allows basic filtering on values in specific columns, e.g. {"Crime type": "Anti-social behaviour"}
 
-    return _format_crime_data(crime_data, keep_lonlat, filters or {})
+#     if month < Month(2010, 12):
+#         raise ValueError(f"Data for {month} is not available")
+#     elif Month(2022, 5) < month:  # TODO this will need regular updating
+#         archive = "latest"
+#     elif month < Month(2014, 6):
+#         archive = "2017-04"
+#     else:
+#         archive = str(list(MonthRange(month, end=month + 36))[-1])
+
+#     local_file = ARCHIVE_TEMPLATE.format(archive)
+#     if not Path(local_file).exists():
+#         download_archive(archive)
+
+#     crime_data = pd.DataFrame()
+#     with ZipFile(local_file) as bulk_data:
+#         for file in bulk_data.namelist():
+#             if f"{month}-{tokenize_force_name(force)}-street" in file:
+#                 crime_data = (
+#                     pd.read_csv(bulk_data.open(file))
+#                     .set_index("Crime ID")
+#                     .drop(columns=["Last outcome category", "Context"])
+#                 )
+#                 break
+#     if crime_data.empty:
+#         raise ValueError(f"No crime data available for {force} in {month}")
+
+#     return _format_crime_data(crime_data, keep_lonlat, filters or {})
 
 
 def lorenz_curve(data: pd.Series[int], *, percentiles: bool = False) -> pd.Series[float]:
