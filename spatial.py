@@ -103,7 +103,7 @@ def get_h3_grid(
     grid = (
         gpd.GeoDataFrame(geometry=hex.geometry, crs="EPSG:27700")
         .sjoin(boundary[["geometry"]])
-        .drop(columns="index_right")
+        .drop(columns="index_right", errors="ignore")
     )
     return _add_centroids(grid)
 
@@ -138,7 +138,11 @@ def get_hex_grid(
     Y = np.arange(ymin // size * size - size + yoff + h, ymax // size * size + 3 * size + yoff + h, dy)
     p.extend([Polygon(hexagon(x, y)) for x in X for y in Y])
 
-    grid = gpd.GeoDataFrame(geometry=p, crs="EPSG:27700").sjoin(boundary[["geometry"]]).drop(columns="index_right")
+    grid = (
+        gpd.GeoDataFrame(geometry=p, crs="EPSG:27700")
+        .sjoin(boundary[["geometry"]])
+        .drop(columns="index_right", errors="ignore")
+    )
     return _add_centroids(grid)
 
 

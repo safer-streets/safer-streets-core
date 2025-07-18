@@ -161,15 +161,15 @@ class Month:
         return hash(self.y * 12 + self.m)
 
 
-def monthgen(start: Month, end: Month | None = None) -> Iterator[Month]:
+def monthgen(start: Month, end: Month | None = None, backwards: bool = False) -> Iterator[Month]:
     """
     Generates months starting from `start` until `end`.
     If `end` is None, it generates indefinitely.
     """
     current = start
-    while end is None or current < end:
+    while current != end:
         yield current
-        current += 1
+        current = current - 1 if backwards else current + 1
 
 
 def tokenize_force_name(force_name: Force) -> str:
@@ -345,9 +345,10 @@ def load_crime_data(
 def lorenz_curve(data: pd.Series[int], *, percentiles: bool = False) -> pd.Series[float]:
     full = data.sort_values().cumsum() / data.sum()
     if percentiles:
-        x = np.linspace(0, 100, 101)
-        return pd.Series(index=x, data=np.percentile(full, x))
-    return full
+        x = np.linspace(0, 1, 101)
+        return pd.Series(index=x, data=np.percentile(full, x * 100))
+    # normalise the x axis
+    return full.set_axis(np.linspace(0, 1, len(full)))
 
 
 def calc_gini(data: pd.Series[int]) -> tuple[float, pd.Series]:
