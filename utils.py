@@ -166,6 +166,10 @@ def monthgen(start: Month, end: Month | None = None, backwards: bool = False) ->
     Generates months starting from `start` until `end`.
     If `end` is None, it generates indefinitely.
     """
+
+    if end:
+        backwards = end < start
+
     current = start
     while current != end:
         yield current
