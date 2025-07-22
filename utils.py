@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import requests
+from scipy.stats import poisson
 from shapely import Polygon
 
 from models import Neighbourhoods, RawPolygon
@@ -360,6 +361,31 @@ def calc_gini(data: pd.Series[int]) -> tuple[float, pd.Series]:
     # trapezoidal rule (scaled by 100 - x axis is %)
     gini = 1.0 - lorenz.rolling(2).mean().sum() / 50.0
     return gini, lorenz
+
+
+def poisson_lorenz_area(lambda_: float) -> float:
+    # work out how many terms we need to sum
+    dist = poisson(lambda_)
+    length = 5
+    threshold = 1 - np.finfo(float).eps
+    while dist.cdf(length) < threshold:
+        length += 1
+
+    # sum( p(k) * (P(k-1) + P(k-2)) / 2)
+    pdf = dist.pmf(range(1, length))
+    cdf = (dist.cdf(range(-1, length - 2)) + dist.cdf(range(length - 1))) / 2
+    return pdf @ cdf
+
+
+def calc_adjusted_gini(lorenz: pd.Series, lambda_: float) -> float:
+    """
+    Calculate the adjusted Gini coefficient from a Lorenz curve and the Poisson intensity.
+    """
+
+    A0 = poisson_lorenz_area(lambda_)
+
+    A = lorenz.sum() / len(lorenz)
+    return (A0 - A) / A0
 
 
 def _spearman_rank_correlation_impl(diff: pd.Series) -> float:
