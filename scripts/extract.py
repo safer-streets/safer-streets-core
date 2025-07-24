@@ -6,19 +6,17 @@ import pandas as pd
 # This script extracts street-level crime data from zipped CSV files and saves them as Parquet files.
 # archives can be downloaded from https://data.police.uk/data/ (see also download_archive in utils.py)
 
+OUT_PATH = Path("./data/extracted/")
 
-def main() -> None:
-    out_path = Path("./data/extracted/")
 
-    out_path.mkdir(parents=True, exist_ok=True)
-
+def extract_all() -> None:
     # this extracts all street-level crime data in reverse order - if a file already exists, it will be newer
     # so it is skipped
     for zipfile in sorted(Path("./data/").glob("police_uk_crime_data_*.zip"), reverse=True):
         print(f"Extracting {zipfile}...")
         with ZipFile(zipfile) as bulk_data:
             for file in bulk_data.namelist():
-                outfile = out_path / file.split("/")[-1].replace(".csv", ".parquet")
+                outfile = OUT_PATH / file.split("/")[-1].replace(".csv", ".parquet")
                 if "street" not in file or outfile.exists():
                     continue
                 (
@@ -31,5 +29,10 @@ def main() -> None:
                 )
 
 
+def extract_latest() -> None:
+    raise NotImplementedError("TODO...")
+
+
 if __name__ == "__main__":
-    main()
+    OUT_PATH.mkdir(parents=True, exist_ok=True)
+    extract_latest()

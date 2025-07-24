@@ -51,7 +51,9 @@ def get_census_boundaries(
         # Calculate intersection area as a fraction of the boundary's area
         intersection = joined.geometry.intersection(overlapping.unary_union)
         # Drop any without significant overlap
-        boundaries = joined[intersection.area / joined.geometry.area > 0.01].drop(columns=["index_right", "GlobalID"])
+        boundaries = joined[intersection.area / joined.geometry.area > 0.01].drop(
+            columns=["index_right", "GlobalID"], errors="ignore"
+        )
     return boundaries
 
 

@@ -1,5 +1,6 @@
 from itertools import pairwise
 
+from itrx import Itr
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -131,7 +132,7 @@ def test_month_comparison() -> None:
     assert not (m3 < m1)
 
 
-def test_monthrange_basic_iteration() -> None:
+def test_monthgen_basic_iteration() -> None:
     start = utils.Month(2023, 5)
     end = utils.Month(2023, 8)
     mr = utils.monthgen(start, end=end)
@@ -144,10 +145,8 @@ def test_monthrange_basic_iteration() -> None:
 
 def test_monthgen_no_end() -> None:
     start = utils.Month(2023, 1)
-    mr = utils.monthgen(start)
-    # Should be an infinite iterator, so just take first 5
-    months = [next(mr) for _ in range(50)]
-    assert all(m.month == (i % 12) + 1 and m.year == 2023 + i // 12 for i, m in enumerate(months))
+    months = Itr(utils.monthgen(start))
+    assert all(m.month == (i % 12) + 1 and m.year == 2023 + i // 12 for i, m in months.take(5).enumerate())
 
 
 def test_monthgen_end_equal_start() -> None:
@@ -159,8 +158,10 @@ def test_monthgen_end_equal_start() -> None:
 
 def test_monthgen_end_before_start() -> None:
     start = utils.Month(2023, 5)
-    end = utils.Month(2023, 4)
-    mr = utils.monthgen(start, end=end)
+    end = utils.Month(2023, 3)
+    mr = Itr(utils.monthgen(start, end=end))
+    assert next(mr) == start
+    assert next(mr) == start - 1
     with pytest.raises(StopIteration):
         next(mr)
 
@@ -168,8 +169,8 @@ def test_monthgen_end_before_start() -> None:
 def test_monthgen_pairwise() -> None:
     start = utils.Month(2020, 12)
     end = utils.Month(2022, 5)
-    m = utils.monthgen(start, end=end)
-    pairs = list(pairwise(m))
+    m = Itr(utils.monthgen(start, end=end))
+    pairs = m.pairwise().collect()
     assert pairs[0][0] == start
     assert pairs[-1][-1] + 1 == end
 

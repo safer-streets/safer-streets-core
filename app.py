@@ -1,23 +1,21 @@
-from itertools import islice
-
 import geopandas as gpd
-import pandas as pd
 import streamlit as st
+from itrx import Itr
 
+from spatial import get_census_boundaries, get_force_boundary
 from utils import (
     CATEGORIES,
+    Force,
+    Month,
     extract_crime_data,
-    get_census_boundaries,
-    get_force_boundary,
     monthgen,
-    tokenize_force_name,
 )
 
 
 @st.cache_data
-def load_crime_data(force: str, category: str) -> pd.DataFrame:
+def load_crime_data(force: Force, category: str) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     force_boundary = get_force_boundary(force)
-    data = extract_crime_data(tokenize_force_name(force), keep_lonlat=True)
+    data = extract_crime_data(force, keep_lonlat=True)
 
     data = data[(data["Crime type"] == category)]  # & (data.geometry.intersects(force_boundary.geometry.union_all()))]
     return data, force_boundary
@@ -25,7 +23,7 @@ def load_crime_data(force: str, category: str) -> pd.DataFrame:
 
 @st.cache_data
 def load_lsoa_boundaries(_force_boundary: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    lsoa_boundaries = get_census_boundaries("LSOA21", "GC", overlapping=_force_boundary)
+    lsoa_boundaries = get_census_boundaries("LSOA21", resolution="GC", overlapping=_force_boundary)
     return lsoa_boundaries
 
 
@@ -40,7 +38,7 @@ def main() -> None:
 
     category = st.selectbox("Crime type", CATEGORIES)
 
-    all_months = list(islice(monthgen(2022, 5), 36))
+    all_months = Itr(monthgen(Month(2022, 6))).take(36).collect()
 
     data, force_boundary = load_crime_data(force, category)
     lsoa_boundaries = load_lsoa_boundaries(force_boundary)
@@ -51,8 +49,7 @@ def main() -> None:
         "Select time range", options=all_months, value=(all_months[0], all_months[-1])
     )
 
-    months = all_months[all_months.index(start_month) : all_months.index(end_month) + 1]
-    data = data[data.Month.isin(months)]
+    data = data[(data.Month >= str(start_month)) & (data.Month <= str(end_month))]
 
     counts = (
         data.groupby(["Month", "LSOA code"])["Crime type"].count().unstack(level="Month", fill_value=0).sort_index()
