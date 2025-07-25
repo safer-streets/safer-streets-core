@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from calendar import monthrange
 from collections.abc import Iterable, Iterator
 from functools import cache
@@ -121,10 +119,10 @@ class Month:
         return monthrange(self.y, self.m + 1)[1]
 
     @staticmethod
-    def parse_str(yyyy_mm: str) -> Month:
+    def parse_str(yyyy_mm: str) -> "Month":
         return Month(*(int(n) for n in yyyy_mm.split("-")))
 
-    def __add__(self, months: int) -> Month:
+    def __add__(self, months: int) -> "Month":
         if months < 0:
             return self - abs(months)
         m = self.m + months
@@ -133,7 +131,7 @@ class Month:
         y = self.y + years
         return Month(y, m + 1)
 
-    def __sub__(self, months: int) -> Month:
+    def __sub__(self, months: int) -> "Month":
         if months < 0:
             return self + abs(months)
         m = self.m - months
@@ -250,13 +248,22 @@ def random_crime_data_by_point(
 
 
 def random_crime_data_by_feature(
-    n: int, features: gpd.GeoDataFrame, months: list, *, seed: int = 19937
+    n: int, features: gpd.GeoDataFrame, months: list, *, weighted: bool = False, seed: int = 19937
 ) -> pd.DataFrame:
     """Sample features. Larger features won't tend to get more crimes"""
     rng = np.random.default_rng(seed)
 
+    extra_args = {}
+    if weighted:
+        assert "weight" in features.columns, "features must have a 'weight' columns when weights=True"
+        extra_args["p"] = features.weight / features.weight.sum()
+
     random = pd.DataFrame(
-        data={"Month": rng.choice(months, n), "spatial_unit": rng.choice(features.index, n), "Crime type": "Random"}
+        data={
+            "Month": rng.choice(months, n),
+            "spatial_unit": rng.choice(features.index, n, **extra_args),
+            "Crime type": "Random",
+        }
     )
 
     return random
@@ -347,19 +354,35 @@ def load_crime_data(
 #     return _format_crime_data(crime_data, keep_lonlat, filters or {})
 
 
-def lorenz_curve(data: pd.Series[int], *, percentiles: bool = False) -> pd.Series[float]:
+def lorenz_curve(data: pd.Series, *, percentiles: bool = False) -> pd.Series:
     full = data.sort_values().cumsum() / data.sum()
     if percentiles:
         x = np.linspace(0, 1, 101)
-        return pd.Series(index=x, data=np.percentile(full, x * 100))
+        return pd.Series(index=1 - x, data=1 - np.percentile(full, x * 100))
     # normalise the x axis
-    return full.set_axis(np.linspace(0, 1, len(full)))
+    return 1 - full.set_axis(1 - np.linspace(0, 1, len(full)))
 
 
-def calc_gini(data: pd.Series[int]) -> tuple[float, pd.Series]:
+def poisson_lorenz_curve(lambda_: float, percentiles: bool = False) -> pd.Series:
+    dist = poisson(lambda_)
+    length = 5
+    threshold = 1.0 - np.finfo(float).eps
+    while dist.cdf(length) < threshold:
+        length += 1
+    cdf = [dist.cdf(k) for k in range(-1, length + 1)]
+    # flip curve
+    l0 = pd.Series(index=[1 - x for x in (0, *cdf[1:])], data=[1 - y for y in (0, *cdf[:-1])]).sort_index()
+    l0[1.0] = 1.0  # this overwrites rather than appends so avoids duplicates
+    if percentiles:
+        x = np.linspace(0, 1, 101)
+        return pd.Series(index=x, data=np.interp(x, l0.index, l0))
+    return l0
+
+
+def calc_gini(data: pd.Series) -> tuple[float, pd.Series]:
     lorenz = lorenz_curve(data, percentiles=True)
-    # trapezoidal rule (scaled by 100 - x axis is %)
-    gini = 1.0 - lorenz.rolling(2).mean().sum() / 50.0
+    # trapezoidal rule (flipped (area above) scaled by 100 - x axis is %)
+    gini = 1.0 - (1.0 - lorenz).rolling(2).mean().sum() / 50.0
     return gini, lorenz
 
 
@@ -384,7 +407,7 @@ def calc_adjusted_gini(lorenz: pd.Series, lambda_: float) -> float:
 
     A0 = poisson_lorenz_area(lambda_)
 
-    A = lorenz.sum() / len(lorenz)
+    A = (1 - lorenz).sum() / len(lorenz)
     return (A0 - A) / A0
 
 

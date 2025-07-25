@@ -1,10 +1,10 @@
 from itertools import pairwise
 
-from itrx import Itr
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
+from itrx import Itr
 from shapely import LineString
 from shapely.geometry import Point, Polygon
 
@@ -27,7 +27,7 @@ def test_tokenize_force_name() -> None:
 def test_lorenz_curve_and_gini() -> None:
     data = pd.Series([1, 2, 3, 4, 5])
     lorenz = utils.lorenz_curve(data)
-    assert np.isclose(lorenz.iloc[-1], 1.0)
+    assert lorenz.loc[0.0] == 0.0
     gini, lorenz2 = utils.calc_gini(data)
     assert 0 <= gini <= 1
     assert isinstance(lorenz2, pd.Series)
