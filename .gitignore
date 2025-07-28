@@ -3,7 +3,7 @@ __pycache__
 .env
 .venv*
 .vscode
-
+site/
 data/
 # OSM
 cache/
