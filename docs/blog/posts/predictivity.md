@@ -1,11 +1,8 @@
 ---
-draft: true
-
 date: 2025-07-31
 
 categories:
-  - Safer Streets
-  - Methodology
+  - Predictivity
 ---
 
 # Comparison of Predictivity Measures
