@@ -2,10 +2,10 @@
 date: 2025-07-31
 
 categories:
-  - Predictivity
+  - Similarity
 ---
 
-# Comparison of Predictivity Measures
+# Comparison of Similarity Measures
 
 - [X] Rank correlation
 - [X] Rank-biased overlap (RBO)
@@ -16,4 +16,9 @@ categories:
 - Seasonality
   - [ ] for given areas
   - [X] of concentration as a whole
+
+
+## Rank correlation
+
+:material-arrow-right: [`area-ranking.ipynb`](https://github.com/safer-streets/safer-streets-eda/blob/main/area-ranking.ipynb)
 

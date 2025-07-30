@@ -14,15 +14,18 @@ The purposes of these analyses are twofold:
 
 ## Lorenz and naive Gini
 
+:material-arrow-right: [`lorenz-curve.ipynb`](https://github.com/safer-streets/safer-streets-eda/blob/main/lorenz-curve.ipynb)
+
 Firstly taking crime data for different crime types and seeing how the concentration varies by
-crime type over the entire (3 year) period. :material-arrow-right: [`lorenz-curve.ipynb`](https://github.com/safer-streets/safer-streets-eda/blob/main/lorenz-curve.ipynb)
+crime type over the entire (3 year) period.
 
 ![lorenz-by-crime-type](../../img/lorenz-by-crime-type.png)
 
 Unsurprisingly, shoplifting - which requires shops - is the most concentrated category.
 
 Looking at the magnitude and temporal stability - calculating the Gini coefficient for each month in the data, and
-comparing this to *i.i.d.* random data, using both irregular and regular spatial units, reveals some important issues:
+comparing this to *i.i.d.* random data, using both irregular and similarly-sized regular spatial units, reveals some
+important issues:
 
 - Statistical geographies (which control for population) exhibit lower concentration than regular ones, since controlling
 for population has a spatial averaging effect.
@@ -35,7 +38,7 @@ Further investigation on Gini, and adjustments to it, can be found in the sectio
 
 ## Clumpiness index
 
-[`clumpiness.ipynb`](https://github.com/safer-streets/safer-streets-eda/blob/main/clumpiness.ipynb)
+:material-arrow-right: [`clumpiness.ipynb`](https://github.com/safer-streets/safer-streets-eda/blob/main/clumpiness.ipynb)
 
 Adepeju *et al* describe a "clumpiness index" which is available in the proprietary and closed-source FRAGSTATS package.
 A quick analysis reveals some drawbacks to the measure (see below). For our purposes we made the following requirements
@@ -92,7 +95,7 @@ the perimeter (a square in this case)
 
 
 ![clumpiness-min](../../img/clumpiness-min.svg){align=left} ![clumpiness-max](../../img/clumpiness-max.svg){align=right}
-For a more practical demonstration, can compute the clumpiness of geometries starting with a fully-disjoint 11x11
+For a more practical demonstration, we compute the clumpiness of geometries starting with a fully-disjoint 11x11
 geometry (left), gradually filling in empty squares until left with a single large square (right). The resulting curve
 is:
 
@@ -118,7 +121,7 @@ the clumpiness index, then it may become useful.
 
 ## KDE
 
-[`kde-sampling.ipynb`](https://github.com/safer-streets/safer-streets-eda/blob/main/kde-sampling.ipynb)
+:material-arrow-right: [`kde-sampling.ipynb`](https://github.com/safer-streets/safer-streets-eda/blob/main/kde-sampling.ipynb)
 
 KDE sampling allows us to create a spatial distribution for crimes based on sampled location data (blue points below).
 The resulting distribution can then be sampled to synthesise similarly-distributed crimes (red points).
@@ -130,6 +133,8 @@ into account geographical features. This approach does not appear to have much u
 
 
 ## Adjusted Gini
+
+:material-arrow-right: [`gini.ipynb`](https://github.com/safer-streets/safer-streets-eda/blob/main/gini.ipynb)
 
 ### Rationale
 
@@ -180,15 +185,78 @@ $\lambda$ |N    | empty | 1 crime | 2 crimes | 3 crimes | 4 crimes
 
 ### Implementation
 
-TODO...
+The first step is simply to check how closely that purely random data matches a Poisson distribution that can
+subsequently be used to create a baseline Lorenz curve. There are two options - randomly assigning points within a
+boundary, then aggregating to spatial units, or directly sampling the spatial units.
 
-...then discuss
+There are pronounced differences between the two approaches which are illustrated in the graphs below. When the spatial
+units have different sizes (LSOAs in this case), in the first approach larger spatial units will typically have higher counts (bottom graph),
+and even regular units that intersect the boundary will have lower counts (top graph).
 
-  - gradually cluster random data and demonstrate how Adj Gini changes more than naive/B&S.
-  - is random data accurately modelled by a Poisson dist? (c.f negative binomial) - yes, with caveats
-  - discuss the effect of uneven distributions  (spatial unit size, intensity)
-  - mention well come back to this in...
+![spatial-sampling-effects](../../img/spatial-sampling-effects.png)
+
+The implication is that crimes are no longer identically distributed across spatial units, and if this is the case then
+it is not valid to use a Poisson distribution as a baseline Lorenz curve. More on this in the
+[next section](#poisson-gamma).
+
+However, assuming we do have independent and identical distributions across spatial units, the "null hypothesis" Lorenz
+curve is given by
+
+$$
+L_0(x) = \frac{1}{\lambda}\int_0^x{Q(p; \lambda) dp}
+$$
+
+where $Q(p;\lambda)$ is the inverse CDF of the Poisson distribution. The curve is piecewise-linear and continuous and
+is described by the origin and the set of points
+
+$$
+\left\{ (F(k; \lambda), F(k-1; \lambda)) \mid k \in \mathbb{N}_0 \right\}
+$$
+
+where $F(k; \lambda)$ is the CDF.
+
+The figure below plots this curve (blue line) alongside real crime data (green) as well as the naive Gini baseline
+(black dotted line) and the limit proposed by Bernasco and Steenbeck (described above, orange dotted line). The
+Poisson intensity in this case is approximately $1\over3$ - in other words *at least* 2/3 of spatial units are crime-
+free.
+
+The naive Gini value is (twice) the area bounded by the green and black dotted lines. Bernasco and Steenback's adjusted
+value is twice the significantly smaller area bounded by the orange rather than the black dotted line.
+
+Our proposal is to use the even smaller red shaded area ($A_0 - A$, where $A_0$ and $A$ are the areas above the blue and
+green curves respectively), either directly or as a proportion of the combined red and grey shaded areas ($A_0$)[^1].
+Unlike the other baselines, this is not a hard limit: it *is* possible for the data to be more dispersed than would be
+expected randomly, so negative values are possible.
+
+[^1]: this measure has more interpretable bounds
+
+![lorenz-poisson](../../img/lorenz-poisson.png)
+
+Looking at how this measure would behave for a range of Poisson intensities. Maximal concentration (all crime in same
+location) correspond to $A_{min} which is always zero, yielding an adjusted Gini of 1. Maximal dispersion areas
+$A_{max}$ are always positive and peak at 0.5 (essentially the black dotted line). The red shaded area depicts the
+possible range of adjusted Gini values.
+
+![adjusted-gini](../../img/adjusted-gini.png)
+
+Applying this to real monthly crime data over 3 years, using a regular 500m grid shows a marked difference between
+naive and adjusted Gini, with the adjusted value lower (as expected) and also accentuates the seasonality of concentration
+
+![gini-vs-adjusted](../../img/gini-vs-adjusted.png)
+
+Finally, using random data sampled with varying weights to create greater and greater concentration, we look at how the
+Lorenz curves and the Gini measures vary:
+
+![gini-vs-concentration](../../img/gini-vs-concentration.png)
+
+Note that in this example the number of features is smaller than the number of crimes - the Bernasco & Steenback Gini
+would not be any different to naive Gini.
 
 ## Poisson-Gamma
 
+:material-arrow-right: [`poisson-gamma.ipynb`](https://github.com/safer-streets/safer-streets-eda/blob/main/poisson-gamma.ipynb)
 
+TODO
+
+- need to revisit spatial invariance and concentration sections in light of non-i.i.d.
+- Poisson-Gamma based lorenz baseline
