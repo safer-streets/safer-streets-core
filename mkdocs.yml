@@ -9,7 +9,7 @@ theme:
   logo: img/safer-streets-small.png
   favicon: img/safer-streets-small.png
   palette:
-    scheme: slate
+    #scheme: slate
     primary: teal
     accent: red
   features:

@@ -21,9 +21,19 @@ crime type over the entire (3 year) period. :material-arrow-right: [`lorenz-curv
 
 Unsurprisingly, shoplifting - which requires shops - is the most concentrated category.
 
-Secondly, focussing on antisocial behaviour, this time at the notebook :material-arrow-right: [`gini.ipynb`](https://github.com/safer-streets/safer-streets-eda/blob/main/gini.ipynb)
+Looking at the magnitude and temporal stability - calculating the Gini coefficient for each month in the data, and
+comparing this to *i.i.d.* random data, using both irregular and regular spatial units, reveals some important issues:
 
-## Clumpiness index (of top n %)
+- Statistical geographies (which control for population) exhibit lower concentration than regular ones, since controlling
+for population has a spatial averaging effect.
+- there is a seasonal variation **in concentration** which is more pronounced for statistical geographies
+- Gini significantly overestimates concentration as evidenced by the random data
+
+![gini-temporal](../../img/gini-temporal.png)
+
+Further investigation on Gini, and adjustments to it, can be found in the section [below](#adjusted-gini)
+
+## Clumpiness index
 
 [`clumpiness.ipynb`](https://github.com/safer-streets/safer-streets-eda/blob/main/clumpiness.ipynb)
 
@@ -90,14 +100,18 @@ is:
 
 This index can easily be applied to non-square regular geometries and even irregular geometries.
 
-Applying this to real data shows that clumpiness index is very stable from month to month, and increases with coarser
-grids.
+When applying this measure to real data, we can apply it in a number of ways: firstly measuring the clumpiness of all
+spatial units that contain a crime in a given period, but also filtering spatial units to cover only the top $N%$ of
+crimes - that is, the smallest number of spatial units required to capture $N%$ of crime.
+
+Applying this to real data shows that clumpiness index is very stable from month to month, decreases as we filter crimes,
+and increases with coarser grids:
 
 ![clumpiness-time](../../img/clumpiness-temporal.png)
 
 ![clumpiness-space](../../img/clumpiness-spatial.png)
 
-With results like this it's difficult to see that this measure is particularly useful or insightful. It doesn't detect
+With results like this it's open to debate whether this measure is particularly useful or insightful. It doesn't detect
 seasonal variation in concentration, at least at the scale tested (some other measures do), it's not scale-invariant
 and the spatial trend is one we'd expect for any input. If temporal and/or spatial scales can be found that maximise
 the clumpiness index, then it may become useful.
@@ -137,9 +151,9 @@ N    | p
 300  | 2e-129
 1000 | ~0 (not representable)
 
-Since crime analysis would typically have $N>>100$ and also because typically $C>N$, this does not seem to be a suitable
+Since crime analysis would typically have $N\gg 100$ and also because typically $C<N$, this does not seem to be a suitable
 reference for a concentration calculation. Bernasco and Steenbeck have gone some way to address this, suggesting a
-reference described by the line $y=max(Nx/C,1)$, which is the equivalent of $C$ states containing 1 crime, and $N-C$
+reference described by the line $y=\text{max}(Nx/C,1)$, which is the equivalent of $C$ states containing 1 crime, and $N-C$
 states empty. However this state is also an improbable low entropy state with the chance of occurrence given by
 $\frac{N!(C-N)!}{N^C}$
 
