@@ -183,6 +183,8 @@ def map_to_spatial_unit(
 
     total_crimes = len(crime_data)
 
+    # TODO crime_data may still contain points outside the boundary due to right sjoins?
+
     # NOTE: in ~4% of (ASB in WY) cases the LSOA code is either inactive and/or does not contain the point
     # although the distance between the point and the reported LSOA is very small
 
