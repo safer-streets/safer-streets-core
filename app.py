@@ -3,6 +3,7 @@ from typing import get_args
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pydeck as pdk
 import streamlit as st
 from itrx import Itr
@@ -12,6 +13,7 @@ from utils import (
     CATEGORIES,
     Force,
     Month,
+    calc_gini,
     load_crime_data,
     monthgen,
 )
@@ -26,26 +28,24 @@ def cache_crime_data(force: Force, category: str) -> tuple[gpd.GeoDataFrame, gpd
     data = load_crime_data(force, all_months, filters={"Crime type": category}, keep_lonlat=True)
     return data, force_boundary
 
-
-# @st.cache_data
-# def cache_spatial_units(_force_boundary: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-#     features = get_census_boundaries(spatial_unit: SpatialUnit, resolution="GC", overlapping=_force_boundary)
-#     return features
-
-
 st.set_page_config(layout="wide", page_title="Safer Streets", page_icon="👮")
 
 geographies = {
+    "Middle layer super output area (census)": ("MSOA", {}),
     "Lower layer super output area (census)": ("LSOA", {}),
     "Output Area (census)": ("OA", {}),
     "Grid 800m": ("GRID", {"size": 800.0}),
-    "Grid 400m": ("GRID", {"size": 800.0}),
+    "Grid 400m": ("GRID", {"size": 400.0}),
+    "Grid 200m": ("GRID", {"size": 200.0}),
     "Hex 500m": ("HEX", {"size": 500.0}),
+    "Hex 250m": ("HEX", {"size": 250.0}),
+    "Hex 125m": ("HEX", {"size": 125.0}),
 }
 
 
+
 def main() -> None:
-    st.title(f"Crime concentration explorer")
+    st.title("Crime concentration explorer")
 
     cols = st.columns(2)
 
@@ -66,9 +66,6 @@ def main() -> None:
 
     centroid_lat, centroid_lon = raw_data.lat.mean(), raw_data.lon.mean()
 
-    # start_month, end_month = st.select_slider(
-    #     "Select time range", options=all_months, value=(all_months[0], all_months[-1])
-    # )
     spatial_unit, spatial_unit_params = geographies[spatial_unit_name]
     crime_data, features = map_to_spatial_unit(raw_data, boundary, spatial_unit, **spatial_unit_params)
 
@@ -88,15 +85,13 @@ def main() -> None:
 
     st.toast("Data loaded")
 
-    if st.checkbox("Show count data"):
-        st.subheader("Count data")
-        st.dataframe(counts)
+    show_lorenz_curve = st.checkbox("Show Lorenz curve")
 
     view_state = pdk.ViewState(
         latitude=centroid_lat,
         longitude=centroid_lon,
         zoom=9,
-        pitch=60,
+        pitch=45,
     )
 
     boundary_layer = pdk.Layer(
@@ -105,57 +100,75 @@ def main() -> None:
         opacity=0.5,
         stroked=True,
         filled=True,
-        # extruded=True,
-        # wireframe=True,
         get_fill_color=[0, 0, 200, 80],  # 180, 0, 200, 80
         get_line_color=[255, 255, 255, 255],
-        # pickable=True,
-        # get_elevation="POPDEN", # Converting to population density per sq m to per sq mile
-        # # get_fill_color="POPULATION==0?[0,0,0,0]:[POPDENNORM+95, POPDENNORM+95, POPDENNORM+95]",
-        # # get_line_color="POPULATION==0?[0,0,0,0]:[POPDENNORM+50, POPDENNORM+50, POPDENNORM+50]",
     )
 
-    button = st.button("GO")
 
+    def render(m: str, c: pd.Series) -> None:
+        lorenz = c.sort_values().cumsum() / c.sum()
+        top_features = features[["geometry"]].loc[lorenz[lorenz >= top_frac].index].join(c.rename("n_crimes"))
+
+        gini, lorenz_pct = calc_gini(c)
+
+        title.markdown(f"""
+            ## {m}
+
+            {len(top_features)/num_features:.1%} ({len(top_features)}/{num_features}) of spatial units contain
+            {top_percent}% of crime
+
+            **Gini Coefficient = {gini:.2f}**
+
+            """)
+        if show_lorenz_curve:
+            lorenz_pct = lorenz_pct.to_frame()
+            lorenz_pct["thresh"] = top_percent / 100
+            graph.line_chart(lorenz_pct, x_label="Proportion of spatial units", y_label="Proportion of crime")
+
+        feature_layer = pdk.Layer(
+            "GeoJsonLayer",
+            top_features.__geo_interface__,
+            opacity=1,
+            stroked=True,
+            filled=True,
+            extruded=True,
+            wireframe=True,
+            get_fill_color=[255, 0, 0, 160],
+            get_line_color=[255, 255, 255, 255],
+            # pickable=True,
+            elevation_scale=20,
+            get_elevation="properties.n_crimes",
+        )
+        map_placeholder.pydeck_chart(
+            pdk.Deck(layers=[boundary_layer, feature_layer], initial_view_state=view_state)
+        )
+
+    def render_static():
+        m = str(st.session_state.month_slider)
+        render(m, counts[m])
+
+    def render_dynamic():
+        for m, c in counts.items():
+            render(m, c)
+            sleep(0.5)
+
+    cols = st.columns(2)
+    run_button = cols[0].empty()
+    month_select = cols[1].empty()
+
+    title = st.empty()
     map_placeholder = st.empty()
     map_placeholder.pydeck_chart(pdk.Deck(layers=[boundary_layer], initial_view_state=view_state))
 
-    title = st.empty()
-    # graph = st.empty()
-    df = st.empty()
+    graph = st.empty()
 
-    if button:
-        for m, c in counts.items():
-            lorenz = c.sort_values().cumsum() / c.sum()
-            top_features = features[["geometry"]].loc[lorenz[lorenz >= top_frac].index].join(c.rename("n_crimes"))
-            title.write(f"# {m}\n\n{len(top_features)}/{num_features} Units contain {top_percent}% of crime")
-            # graph.line_chart(lorenz[m])
+    run = run_button.button("Run all...")
+    z = month_select.select_slider("...or pick a month", options=all_months, value=all_months[0], key="month_slider")
 
-            # df.dataframe(top_features)
-
-            print(top_features.__geo_interface__["features"][0]["properties"])
-
-            feature_layer = pdk.Layer(
-                "GeoJsonLayer",
-                top_features.__geo_interface__,
-                opacity=1,
-                stroked=True,
-                filled=True,
-                extruded=True,
-                wireframe=True,
-                get_fill_color=[255, 0, 0, 160],
-                get_line_color=[255, 255, 255, 255],
-                # pickable=True,
-                elevation_scale=100,
-                get_elevation="properties.n_crimes",
-            )
-            map_placeholder.pydeck_chart(
-                pdk.Deck(layers=[boundary_layer, feature_layer], initial_view_state=view_state)
-            )
-
-            sleep(1)
-
-    # TODO play with streamlit-folium https://github.com/randyzwitch/streamlit-folium
+    if run:
+        render_dynamic()
+    if z:
+        render_static()
 
 
 if __name__ == "__main__":
