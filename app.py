@@ -8,7 +8,7 @@ import pydeck as pdk
 import streamlit as st
 from itrx import Itr
 
-from spatial import SpatialUnit, get_force_boundary, map_to_spatial_unit
+from spatial import get_force_boundary, map_to_spatial_unit
 from utils import (
     CATEGORIES,
     Force,
@@ -28,6 +28,7 @@ def cache_crime_data(force: Force, category: str) -> tuple[gpd.GeoDataFrame, gpd
     data = load_crime_data(force, all_months, filters={"Crime type": category}, keep_lonlat=True)
     return data, force_boundary
 
+
 st.set_page_config(layout="wide", page_title="Safer Streets", page_icon="👮")
 
 geographies = {
@@ -41,7 +42,6 @@ geographies = {
     "Hex 250m": ("HEX", {"size": 250.0}),
     "Hex 125m": ("HEX", {"size": 125.0}),
 }
-
 
 
 def main() -> None:
@@ -104,7 +104,6 @@ def main() -> None:
         get_line_color=[255, 255, 255, 255],
     )
 
-
     def render(m: str, c: pd.Series) -> None:
         lorenz = c.sort_values().cumsum() / c.sum()
         top_features = features[["geometry"]].loc[lorenz[lorenz >= top_frac].index].join(c.rename("n_crimes"))
@@ -114,7 +113,7 @@ def main() -> None:
         title.markdown(f"""
             ## {m}
 
-            {len(top_features)/num_features:.1%} ({len(top_features)}/{num_features}) of spatial units contain
+            {len(top_features) / num_features:.1%} ({len(top_features)}/{num_features}) of spatial units contain
             {top_percent}% of crime
 
             **Gini Coefficient = {gini:.2f}**
@@ -139,13 +138,14 @@ def main() -> None:
             elevation_scale=20,
             get_elevation="properties.n_crimes",
         )
-        map_placeholder.pydeck_chart(
-            pdk.Deck(layers=[boundary_layer, feature_layer], initial_view_state=view_state)
-        )
+        map_placeholder.pydeck_chart(pdk.Deck(layers=[boundary_layer, feature_layer], initial_view_state=view_state))
 
     def render_static():
         m = str(st.session_state.month_slider)
-        render(m, counts[m])
+        if m not in counts.columns:
+            st.error(f"No data for {m}")
+        else:
+            render(m, counts[m])
 
     def render_dynamic():
         for m, c in counts.items():

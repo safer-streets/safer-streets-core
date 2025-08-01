@@ -1,3 +1,4 @@
+import warnings
 from calendar import monthrange
 from collections.abc import Iterable, Iterator
 from functools import cache
@@ -309,7 +310,10 @@ def load_crime_data(
     force_identifier = tokenize_force_name(force)
     for month in months:
         path = Path(DATA_TEMPLATE.format(month=month, force=force_identifier))
-        data.append(pd.read_parquet(path))
+        if path.is_file():
+            data.append(pd.read_parquet(path))
+        else:
+            warnings.warn("Crime data not found: {path}", stacklevel=2)
 
     return _format_crime_data(pd.concat(data), keep_lonlat, filters or {})
 
