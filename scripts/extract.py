@@ -29,10 +29,35 @@ def extract_all() -> None:
                 )
 
 
-def extract_latest() -> None:
-    raise NotImplementedError("TODO...")
+def extract_latest(*, keep_existing: bool=False) -> None:
+    zipfile = "./data/police_uk_crime_data_latest.zip"
+    print(f"Extracting {zipfile}...")
+    with ZipFile(zipfile) as bulk_data:
+        for file in bulk_data.namelist():
+            outfile = OUT_PATH / file.split("/")[-1].replace(".csv", ".parquet")
+            if "street" not in file or (keep_existing and outfile.exists()):
+                continue
+            (
+                pd.read_csv(bulk_data.open(file))
+                .set_index("Crime ID")
+                .drop(columns=["Last outcome category", "Context"])
+            ).to_parquet(
+                outfile,
+                index=True,
+            )
+
+def extract_summary() -> pd.DataFrame:
+    data = []
+    for file in Path("./data/extracted").glob("*-street.parquet"):
+        print(file.name)
+        month = file.name[:7]
+        force = file.name[8:].replace("-street.parquet", "")
+        data.append((month, force))
+    return pd.DataFrame(index=pd.MultiIndex.from_tuples(data), data={"ok": True})
 
 
 if __name__ == "__main__":
     OUT_PATH.mkdir(parents=True, exist_ok=True)
-    extract_latest()
+    extract_latest(keep_existing=True)
+    summary = extract_summary()
+    print(summary.unstack(level=1).fillna(False).sum())
