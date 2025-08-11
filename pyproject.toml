@@ -1,0 +1,46 @@
+[project]
+name = "safer-streets-core"
+version = "0.1.0"
+authors = [
+    { name = "virgesmith", email = "a.p.smith@leeds.ac.uk" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "geopandas>=1.1.1",
+    "h3pandas>=0.3.0",
+    "itrx>=0.1.1",
+    "osmnx>=2.0.5",
+    "pandas>=2.3.1",
+    "pydantic>=2.11.7",
+    "python-dotenv>=1.1.1",
+    "requests>=2.32.4",
+    "scipy>=1.16.1",
+    "shapely>=2.1.1",
+    "types-shapely>=2.1.0.20250809",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.17.1",
+    "pytest>=8.4.1",
+    "ruff>=0.12.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/test/*.py" = ["D103"]
+
+[tool.mypy]
+strict = true
+disallow_untyped_defs = true
+
