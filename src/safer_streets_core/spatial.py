@@ -7,6 +7,7 @@ import numpy as np
 import osmnx as ox
 from shapely import Polygon, transform
 
+from safer_streets_core import DATA_DIR
 from safer_streets_core.utils import Force
 
 SpatialUnit = Literal["MSOA", "LSOA", "OA", "GRID", "H3", "HEX", "STREET"]
@@ -44,7 +45,7 @@ def _add_centroids(spatial_units: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 def get_census_boundaries(
     geography: str, *, resolution: Resolution = "GC", overlapping: gpd.GeoDataFrame | None = None
 ) -> gpd.GeoDataFrame:
-    boundaries = gpd.read_file(f"./data/{CENSUS_BOUNDARY_FILES[geography][resolution]}").set_index(f"{geography}CD")
+    boundaries = gpd.read_file(DATA_DIR / f"{CENSUS_BOUNDARY_FILES[geography][resolution]}").set_index(f"{geography}CD")
     if overlapping is not None:
         # Drop boundaries that adjoin the overlapping area (but might overlap slightly due to rounding errors)
         joined = boundaries.sjoin(overlapping[["geometry"]], how="inner", predicate="intersects")
@@ -160,7 +161,7 @@ def get_street_network(boundary: gpd.GeoDataFrame, **args: Any) -> gpd.GeoDataFr
 
 # not available in the police API...
 def get_force_boundary(force_name: Force) -> gpd.GeoDataFrame:
-    force_boundaries = gpd.read_file("./data/Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
+    force_boundaries = gpd.read_file(DATA_DIR / "Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
     if force_name not in force_boundaries.PFA23NM.to_list():
         raise ValueError(f"{force_name} is not valid. Must be one of {', '.join(force_boundaries.PFA23NM)}")
     return force_boundaries[force_name == force_boundaries.PFA23NM].drop(

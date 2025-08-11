@@ -20,12 +20,27 @@ uv pip install .
 Set the env var `NOMIS_API_KEY` with your Nomis API key. Ideally put it in a `.env` file, in the safer-streets root
 directory
 
-## Content
+## Content Overview
 
 ### General
 
+- Police & crime metadata
+- Data retrieval and man
+- Concentration computations: Lorenz, Gini etc
+- Similarity computations, e.g rank correlation
+
 ### Geopatial
 
+- Spatial units/scales:
+  - [X] Administrative: PFAs
+  - [X] Census/statistical: MSOA21, LSOA21, OA21
+  - [X] Regular: Square, hex, h3 grids
+  - [X] Street segments
+- Point aggregration to above units
+- Clumpiness calculation
+
 ### Demographics
+
+- Data model and API access for Nomisweb
 
 

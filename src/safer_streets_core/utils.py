@@ -15,6 +15,7 @@ import requests
 from scipy.stats import poisson
 from shapely import Polygon
 
+from safer_streets_core import DATA_DIR
 from safer_streets_core.models import Neighbourhoods, RawPolygon
 
 CATEGORIES = ("Violence and sexual offences", "Anti-social behaviour", "Possession of weapons")
@@ -85,7 +86,7 @@ def _get_boundary(force: Force, neighbourhood_id: str) -> Polygon:
 @cache
 def get_raw_geog_lookup() -> pd.DataFrame:
     # https://www.arcgis.com/sharing/rest/content/items/80592949bebd4390b2cbe29159a75ef4/data
-    return pd.read_csv("./data/PCD_OA21_LSOA21_MSOA21_LAD_FEB25_UK_LU.zip")
+    return pd.read_csv(DATA_DIR / "PCD_OA21_LSOA21_MSOA21_LAD_FEB25_UK_LU.zip")
 
 
 def get_geog_lookup(geog_from: str, geogs_to: list[str]) -> pd.DataFrame:
@@ -95,8 +96,8 @@ def get_geog_lookup(geog_from: str, geogs_to: list[str]) -> pd.DataFrame:
 
 POLICE_API_BASE_URL = "http://data.police.uk/api"
 POLICE_DATA_BASE_URL = "http://data.police.uk/data"
-ARCHIVE_TEMPLATE = "./data/police_uk_crime_data_{}.zip"
-DATA_TEMPLATE = "./data/extracted/{month}-{force}-street.parquet"
+ARCHIVE_TEMPLATE = f"{DATA_DIR}/police_uk_crime_data_{{}}.zip"
+DATA_TEMPLATE = f"{DATA_DIR}/extracted/{{month}}-{{force}}-street.parquet"
 
 
 class Month:

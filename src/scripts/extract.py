@@ -1,18 +1,19 @@
-from pathlib import Path
 from zipfile import ZipFile
 
 import pandas as pd
 
+from safer_streets_core import DATA_DIR
+
 # This script extracts street-level crime data from zipped CSV files and saves them as Parquet files.
 # archives can be downloaded from https://data.police.uk/data/ (see also download_archive in utils.py)
 
-OUT_PATH = Path("./data/extracted/")
+OUT_PATH = DATA_DIR / "extracted/"
 
 
 def extract_all() -> None:
     # this extracts all street-level crime data in reverse order - if a file already exists, it will be newer
     # so it is skipped
-    for zipfile in sorted(Path("./data/").glob("police_uk_crime_data_*.zip"), reverse=True):
+    for zipfile in sorted(DATA_DIR.glob("police_uk_crime_data_*.zip"), reverse=True):
         print(f"Extracting {zipfile}...")
         with ZipFile(zipfile) as bulk_data:
             for file in bulk_data.namelist():
@@ -30,7 +31,7 @@ def extract_all() -> None:
 
 
 def extract_latest(*, keep_existing: bool = False) -> None:
-    zipfile = "./data/police_uk_crime_data_latest.zip"
+    zipfile = DATA_DIR / "police_uk_crime_data_latest.zip"
     print(f"Extracting {zipfile}...")
     with ZipFile(zipfile) as bulk_data:
         for file in bulk_data.namelist():
@@ -49,7 +50,7 @@ def extract_latest(*, keep_existing: bool = False) -> None:
 
 def extract_summary() -> pd.DataFrame:
     data = []
-    for file in Path("./data/extracted").glob("*-street.parquet"):
+    for file in (DATA_DIR / "extracted").glob("*-street.parquet"):
         print(file.name)
         month = file.name[:7]
         force = file.name[8:].replace("-street.parquet", "")
