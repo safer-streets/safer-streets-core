@@ -150,6 +150,7 @@ def get_hex_grid(
 
 
 def get_street_network(boundary: gpd.GeoDataFrame, **args: Any) -> gpd.GeoDataFrame:
+    # TODO it would be good to cache this data but there are some issues with pyarrow/geojson
     # get street network in lon-lat polygon then project back to BNG
     G = ox.graph_from_polygon(
         boundary.to_crs(epsg=4326).iloc[0].geometry, network_type="drive", retain_all=True, **args
