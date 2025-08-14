@@ -179,6 +179,7 @@ def monthgen(start: Month, end: Month | None = None, backwards: bool = False) ->
 
 def tokenize_force_name(force_name: Force) -> str:
     """Tokenize the force name for use in file paths."""
+    # TODO fix this to handle cases like "Metropolitan Police" vs "metropolitan"
     return force_name.replace(" ", "-").lower()
 
 

@@ -19,6 +19,10 @@ dependencies = [
     "types-shapely>=2.1.0.20250809",
 ]
 
+[project.scripts]
+assign-population = "scripts.assign_population:main"
+extract = "scripts.extract:main"
+
 [dependency-groups]
 dev = [
     "datamodel-code-generator>=0.32.0",
@@ -26,6 +30,7 @@ dev = [
     "pytest>=8.4.1",
     "ruff>=0.12.8",
 ]
+
 
 [build-system]
 requires = ["hatchling"]

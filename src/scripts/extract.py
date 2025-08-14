@@ -1,6 +1,7 @@
 from zipfile import ZipFile
 
 import pandas as pd
+import typer
 
 from safer_streets_core import DATA_DIR
 
@@ -8,9 +9,13 @@ from safer_streets_core import DATA_DIR
 # archives can be downloaded from https://data.police.uk/data/ (see also download_archive in utils.py)
 
 OUT_PATH = DATA_DIR / "extracted/"
+OUT_PATH.mkdir(parents=True, exist_ok=True)
+
+app = typer.Typer()
 
 
-def extract_all() -> None:
+@app.command()
+def all() -> None:
     # this extracts all street-level crime data in reverse order - if a file already exists, it will be newer
     # so it is skipped
     for zipfile in sorted(DATA_DIR.glob("police_uk_crime_data_*.zip"), reverse=True):
@@ -30,7 +35,8 @@ def extract_all() -> None:
                 )
 
 
-def extract_latest(*, keep_existing: bool = False) -> None:
+@app.command()
+def latest(*, keep_existing: bool = False) -> None:
     zipfile = DATA_DIR / "police_uk_crime_data_latest.zip"
     print(f"Extracting {zipfile}...")
     with ZipFile(zipfile) as bulk_data:
@@ -48,18 +54,20 @@ def extract_latest(*, keep_existing: bool = False) -> None:
             )
 
 
-def extract_summary() -> pd.DataFrame:
+@app.command()
+def summary() -> None:
     data = []
     for file in (DATA_DIR / "extracted").glob("*-street.parquet"):
-        print(file.name)
         month = file.name[:7]
         force = file.name[8:].replace("-street.parquet", "")
         data.append((month, force))
-    return pd.DataFrame(index=pd.MultiIndex.from_tuples(data), data={"ok": True})
+    summary = pd.DataFrame(index=pd.MultiIndex.from_tuples(data), data={"ok": True})
+    typer.echo(summary.unstack(level=1, fill_value=False).sum())
+
+
+def main() -> None:
+    app()
 
 
 if __name__ == "__main__":
-    OUT_PATH.mkdir(parents=True, exist_ok=True)
-    extract_latest(keep_existing=True)
-    summary = extract_summary()
-    print(summary.unstack(level=1).fillna(False).sum())
+    main()

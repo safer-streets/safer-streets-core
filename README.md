@@ -43,4 +43,6 @@ directory
 
 - Data model and API access for Nomisweb
 
+## TODO
 
+- [ ] deal with discrepancies in force naming e.g. "metropolitan" vs "Metropolitan Police"

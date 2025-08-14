@@ -44,6 +44,7 @@ geographies = {
 
 
 def main() -> None:
+    raise RuntimeError("DEPRECATED use the implementation in safer-streets-app")
     st.title("Crime concentration explorer")
 
     cols = st.columns(2)

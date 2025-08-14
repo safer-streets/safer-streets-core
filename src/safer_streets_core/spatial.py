@@ -5,10 +5,12 @@ import geopandas as gpd
 import h3pandas  # noqa (implicitly required)
 import numpy as np
 import osmnx as ox
+import pandas as pd
+import shapely
 from shapely import Polygon, transform
 
 from safer_streets_core import DATA_DIR
-from safer_streets_core.utils import Force
+from safer_streets_core.utils import Force, tokenize_force_name
 
 SpatialUnit = Literal["MSOA", "LSOA", "OA", "GRID", "H3", "HEX", "STREET"]
 CensusGeography = Literal["MSOA", "LSOA", "OA"]
@@ -77,6 +79,7 @@ def get_square_grid(
         .sjoin(boundary[["geometry"]])
         .drop(columns="index_right", errors="ignore")
     )
+    grid.index.name = "spatial_unit"
     return _add_centroids(grid)
 
 
@@ -108,6 +111,7 @@ def get_h3_grid(
         .sjoin(boundary[["geometry"]])
         .drop(columns="index_right", errors="ignore")
     )
+    grid.index.name = "spatial_unit"
     return _add_centroids(grid)
 
 
@@ -146,14 +150,15 @@ def get_hex_grid(
         .sjoin(boundary[["geometry"]])
         .drop(columns="index_right", errors="ignore")
     )
+    grid.index.name = "spatial_unit"
     return _add_centroids(grid)
 
 
-def get_street_network(boundary: gpd.GeoDataFrame, **args: Any) -> gpd.GeoDataFrame:
+def get_street_network(boundary: gpd.GeoDataFrame, *, network_type: str = "drive", **args: Any) -> gpd.GeoDataFrame:
     # TODO it would be good to cache this data but there are some issues with pyarrow/geojson
     # get street network in lon-lat polygon then project back to BNG
     G = ox.graph_from_polygon(
-        boundary.to_crs(epsg=4326).iloc[0].geometry, network_type="drive", retain_all=True, **args
+        boundary.to_crs(epsg=4326).iloc[0].geometry, network_type=network_type, retain_all=True, **args
     )
     G = ox.project_graph(G, to_crs="epsg:27700")
     _nodes, features = ox.graph_to_gdfs(G)
@@ -244,3 +249,28 @@ def normalised_clumpiness(features: gpd.GeoDataFrame, scale: float) -> float:
 
     # for a single unit clumpiness isnt defined but we return 1
     return (max_p - u.length) / r if r else 1.0
+
+
+def load_population_data(force: Force) -> gpd.GeoDataFrame:
+    """Loads a previously assigned point population dataset for a given force."""
+    TABLE_NAME = "NM_2132_1"
+    file = DATA_DIR / f"{TABLE_NAME}_assigned_{tokenize_force_name(force)}.parquet"
+    if not file.exists():
+        raise FileNotFoundError(f"Population data for {force} not found ({file}). Run assign-population first.")
+    population = pd.read_parquet(file)
+    population.geometry = shapely.from_wkt(population.geometry)
+    return gpd.GeoDataFrame(population, crs="EPSG:27700")
+
+
+def get_demographics(population: gpd.GeoDataFrame, features: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Returns a GeoDataFrame with population counts per spatial unit.
+    """
+    remapped = features.sjoin(population)
+    return (
+        remapped.groupby(["spatial_unit", "C2021_ETH_20_NAME", "C2021_AGE_6_NAME", "C_SEX_NAME"], observed=False)
+        .size()
+        .rename("count")
+        .to_frame()
+        .sort_index()
+    )
