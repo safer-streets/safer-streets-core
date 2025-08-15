@@ -8,6 +8,7 @@ from typing import Any, Literal, Self
 from zipfile import ZipFile
 
 import geopandas as gpd
+import humanleague as hl
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -251,6 +252,33 @@ def random_crime_data_by_point(
     return random
 
 
+def quasirandom_crime_data_by_point(N: int, boundary: gpd.GeoDataFrame, months: list[Any]) -> gpd.GeoDataFrame:
+    """Uses Sobol sequence to quasirandomly sample (x, y, t)"""
+    minx, miny, maxx, maxy = boundary.bounds.iloc[0]
+    deltax = maxx - minx
+    deltay = maxy - miny
+    area = deltax * deltay
+
+    # oversample to get approximately N within boundary
+    Nadj = int(N * area / boundary.area.sum() + 0.5)
+    M = len(months)
+
+    def split(x, y, t) -> tuple[tuple[float, float], Any]:
+        return (x, y), months[int(t * M)]
+
+    point_seq, month_seq = Itr(hl.SobolSequence(3)).take(Nadj).starmap(split).unzip()
+    x, y = point_seq.unzip()
+
+    quasirandom = gpd.GeoDataFrame(
+        geometry=gpd.points_from_xy(
+            np.array(x.collect(list)) * deltax + minx, np.array(y.collect(list)) * deltay + miny
+        ),
+        data={"Month": month_seq.collect(list), "Crime type": "Quasirandom"},
+        crs=boundary.crs,
+    )
+    return quasirandom.sjoin(boundary[["geometry"]]).drop(columns=["index_right"], errors="ignore")
+
+
 def random_crime_data_by_feature(
     n: int, features: gpd.GeoDataFrame, months: list, *, weighted: bool = False, seed: int = 19937
 ) -> pd.DataFrame:
@@ -375,6 +403,20 @@ def lorenz_curve(data: pd.Series, *, percentiles: bool = False) -> pd.Series:
         return pd.Series(index=1 - x, data=1 - np.percentile(full, x * 100))
     # normalise the x axis
     return 1 - full.set_axis(1 - np.linspace(0, 1, len(full)))
+
+
+def weighted_lorenz_curve(
+    data: pd.DataFrame, *, data_col: str, weight_col: str, percentiles: bool = False
+) -> pd.Series:
+    tempdf = data[[data_col, weight_col]].copy()
+    tempdf["ordering"] = tempdf[data_col] / tempdf[weight_col]
+    tempdf = tempdf.sort_values(by="ordering")
+    full = tempdf[data_col].cumsum() / tempdf[data_col].sum()
+    index = tempdf[weight_col].cumsum() / tempdf[weight_col].sum()
+
+    if percentiles:
+        raise NotImplementedError("TODO if required - interpolate (index, full)")
+    return 1 - full.set_axis(1 - index)
 
 
 def poisson_lorenz_curve(lambda_: float, percentiles: bool = False) -> pd.Series:
