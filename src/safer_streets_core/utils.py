@@ -12,6 +12,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import requests
+from itrx import Itr
 from scipy.stats import poisson
 from shapely import Polygon
 
@@ -318,6 +319,13 @@ def load_crime_data(
             warnings.warn("Crime data not found: {path}", stacklevel=2)
 
     return _format_crime_data(pd.concat(data), keep_lonlat, filters or {})
+
+
+def latest_month() -> Month:
+    "Returns the most recent month found in the (local) archive"
+    files = (DATA_DIR / "extracted").glob("*-street.parquet")
+    month = Itr(files).map(lambda file: Month.parse_str(next(files).name[:7])).max()
+    return month
 
 
 # def extract_monthly_crime_data(

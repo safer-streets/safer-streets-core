@@ -26,6 +26,7 @@ def nbinom_fit(data: pd.Series) -> Any:
     # fit
     popt, _ = curve_fit(nbinom_pdf, values, counts_, p0=[n0, p0], bounds=([1e-9, 1e-9], [np.inf, 1 - 1e-9]))
     n, p = popt
+    print(f"{n=} {p=}")
     # mu = n * (1 - p) / p
     return nbinom(n, p)
 
