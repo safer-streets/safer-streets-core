@@ -81,12 +81,12 @@ def impl(force: str, *, seed: int = 19937) -> None:
             continue
 
         # assign population proportionally to street segments
-        pop_per_street, stats = hl.integerise(len(group) * local_streets.length / local_streets.length.sum())
-        assert stats["conv"]
-        # workaround a rounding error bug in humanleague
-        if pop_per_street.sum() != len(group):
-            # print(f"{oa_code} population mismatch: {pop_per_street.sum()} != {len(group)}")
-            pop_per_street[pop_per_street.argmax()] += 1
+        # a rounding error bug in humanleague means we need to explicitly specify the total
+        # (and no conv status is returned for this overload)
+        pop_per_street, stats = hl.integerise(
+            len(group) * local_streets.length / local_streets.length.sum(), len(group)
+        )
+        # assert stats["conv"]
         points = local_streets.sample_points(
             pop_per_street, rng=rng
         ).explode()  # need to explode to count intersections with individual points

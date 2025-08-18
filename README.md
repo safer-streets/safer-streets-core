@@ -29,6 +29,11 @@ directory
 - Concentration computations: Lorenz, Gini etc
 - Similarity computations, e.g rank correlation
 
+### Statistical
+
+- Pseudo- and quasirandom sampling
+- Fitting to distributions
+
 ### Geopatial
 
 - Spatial units/scales:
@@ -38,11 +43,8 @@ directory
   - [X] Street segments
 - Point aggregration to above units
 - Clumpiness calculation
+- Population redistribution (from census to other spatial units)
 
 ### Demographics
 
 - Data model and API access for Nomisweb
-
-## TODO
-
-- [ ] deal with discrepancies in force naming e.g. "metropolitan" vs "Metropolitan Police"

@@ -1,4 +1,5 @@
 from itertools import pairwise
+from typing import get_args
 
 import geopandas as gpd
 import numpy as np
@@ -20,8 +21,57 @@ def test_format_boundary_as_param() -> None:
 
 
 def test_tokenize_force_name() -> None:
-    assert utils.tokenize_force_name("West Midlands") == "west-midlands"
-    assert utils.tokenize_force_name("City of London") == "city-of-london"
+    # these are the names used in the data.police.uk archives
+    tokenized = {
+        "hampshire",
+        "dyfed-powys",
+        "lancashire",
+        "suffolk",
+        "thames-valley",
+        "leicestershire",
+        "lincolnshire",
+        "greater-manchester",
+        "sussex",
+        "cambridgeshire",
+        "nottinghamshire",
+        "humberside",
+        "surrey",
+        "northamptonshire",
+        "north-wales",
+        "cumbria",
+        "west-midlands",
+        "cheshire",
+        "kent",
+        "hertfordshire",
+        "dorset",
+        "durham",
+        "btp",
+        "avon-and-somerset",
+        "cleveland",
+        "staffordshire",
+        "west-mercia",
+        "essex",
+        "north-yorkshire",
+        "wiltshire",
+        "gloucestershire",
+        "south-wales",
+        "gwent",
+        "northumbria",
+        "south-yorkshire",
+        "devon-and-cornwall",
+        "northern-ireland",
+        "city-of-london",
+        "derbyshire",
+        "norfolk",
+        "bedfordshire",
+        "merseyside",
+        "metropolitan",
+        "west-yorkshire",
+        "warwickshire",
+    }
+
+    for force in get_args(utils.Force):
+        assert utils.tokenize_force_name(force) in tokenized
 
 
 def test_lorenz_curve_and_gini() -> None:
