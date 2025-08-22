@@ -12,8 +12,7 @@ from shapely import Polygon, transform
 from safer_streets_core import DATA_DIR
 from safer_streets_core.utils import Force, tokenize_force_name
 
-SpatialUnit = Literal["MSOA", "LSOA", "OA", "GRID", "H3", "HEX", "STREET"]
-CensusGeography = Literal["MSOA", "LSOA", "OA"]
+SpatialUnit = Literal["MSOA21", "LSOA21", "OA21", "GRID", "H3", "HEX", "STREET"]
 Resolution = Literal["FE", "GC", "SC"]
 
 # Download at least one of these from ONS
@@ -196,17 +195,9 @@ def map_to_spatial_unit(
     # although the distance between the point and the reported LSOA is very small
 
     match area_type:
-        case "LSOA":
-            features = get_census_boundaries("LSOA21", overlapping=boundary, **kwargs)
-            crime_data = features.sjoin(crime_data, how="right").rename(columns={"LSOA21CD": "spatial_unit"})
-        case "MSOA":
-            features = get_census_boundaries("MSOA21", overlapping=boundary, **kwargs)
-            crime_data = features.sjoin(crime_data, how="right").rename(columns={"MSOA21CD": "spatial_unit"})
-        case "OA":
-            # do a spatial join to get ALL OAs in force area
-            features = get_census_boundaries("OA21", overlapping=boundary, **kwargs)  # .sjoin(boundary[["geometry"]])
-            # get crime counts for OAs by right-joining boundaries to crime data (this wont include crime-free OAs)
-            crime_data = features.sjoin(crime_data, how="right").rename(columns={"OA21CD": "spatial_unit"})
+        case "MSOA21" | "LSOA21" | "OA21":
+            features = get_census_boundaries(area_type, overlapping=boundary, **kwargs)
+            crime_data = features.sjoin(crime_data, how="right").rename(columns={f"{area_type}CD": "spatial_unit"})
         case "GRID":
             features = get_square_grid(boundary, **kwargs)
             crime_data = features.sjoin(crime_data, how="right").rename(columns={"index_left": "spatial_unit"})

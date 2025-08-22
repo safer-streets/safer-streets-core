@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
-from scipy.stats import lognorm, nbinom, poisson
+from scipy.stats import expon, gamma, lognorm, nbinom, poisson
 
 
 def poisson_fit(data: pd.Series) -> Any:
@@ -30,6 +30,23 @@ def nbinom_fit(data: pd.Series) -> Any:
     return nbinom(n, p)
 
 
+def gamma_fit(data: pd.Series) -> Any:
+    # # Estimate k (shape) and theta (scale) using Method of Moments formulas
+    # mean = data.mean()
+    # var = data.var(ddof=1)
+    # k_mom = mean**2 / var
+    # theta_mom = var / mean
+
+    # use maximum likelihood estimation (MLE) to fit the gamma distribution
+    a_mle, loc_mle, scale_mle = gamma.fit(data)
+    return gamma(a_mle, loc=loc_mle, scale=scale_mle)
+
+
+def exponential_fit(data: pd.Series) -> Any:
+    loc, scale = expon.fit(data)  # fit with fixed location at 0
+    return expon(loc=loc, scale=scale)
+
+
 def lognorm_fit(data: pd.Series) -> Any:
-    logdata = np.log(data[data > 0])  # log-transform data, ignoring zeros
-    return lognorm(logdata.std(), loc=logdata.mean(), scale=np.exp(logdata.mean()))
+    shape, loc, scale = lognorm.fit(data)  # fit with fixed location at 0
+    return lognorm(shape, loc=loc, scale=scale)
