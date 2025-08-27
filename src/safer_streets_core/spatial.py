@@ -79,7 +79,8 @@ def get_square_grid(
         .drop(columns="index_right", errors="ignore")
     )
     grid.index.name = "spatial_unit"
-    return _add_centroids(grid)
+    # trim features that cross the boundary
+    return _add_centroids(grid).overlay(boundary)
 
 
 def get_h3_grid(
@@ -111,7 +112,8 @@ def get_h3_grid(
         .drop(columns="index_right", errors="ignore")
     )
     grid.index.name = "spatial_unit"
-    return _add_centroids(grid)
+    # trim features that cross the boundary
+    return _add_centroids(grid).overlay(boundary)
 
 
 def get_hex_grid(
@@ -150,7 +152,8 @@ def get_hex_grid(
         .drop(columns="index_right", errors="ignore")
     )
     grid.index.name = "spatial_unit"
-    return _add_centroids(grid)
+    # trim features that cross the boundary
+    return _add_centroids(grid).overlay(boundary)
 
 
 def get_street_network(boundary: gpd.GeoDataFrame, *, network_type: str = "drive", **args: Any) -> gpd.GeoDataFrame:
