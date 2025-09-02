@@ -47,6 +47,7 @@ def get_census_boundaries(
     geography: str, *, resolution: Resolution = "GC", overlapping: gpd.GeoDataFrame | None = None
 ) -> gpd.GeoDataFrame:
     boundaries = gpd.read_file(DATA_DIR / f"{CENSUS_BOUNDARY_FILES[geography][resolution]}").set_index(f"{geography}CD")
+    boundaries.index.name = "spatial_unit"
     if overlapping is not None:
         # Drop boundaries that adjoin the overlapping area (but might overlap slightly due to rounding errors)
         joined = boundaries.sjoin(overlapping[["geometry"]], how="inner", predicate="intersects")
@@ -169,10 +170,19 @@ def get_street_network(boundary: gpd.GeoDataFrame, *, network_type: str = "drive
 
 # not available in the police API...
 def get_force_boundary(force_name: Force) -> gpd.GeoDataFrame:
+    # correct for naming inconsistencies
+    NAME_ADJUSTMENTS = {
+        "Metropolitan": "Metropolitan Police",
+        "Devon and Cornwall": "Devon & Cornwall",
+        "City of London": "London, City of",
+        "Dyfed Powys": "Dyfed-Powys",
+    }
+    corrected_force_name = NAME_ADJUSTMENTS.get(force_name, force_name)
+
     force_boundaries = gpd.read_file(DATA_DIR / "Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
-    if force_name not in force_boundaries.PFA23NM.to_list():
-        raise ValueError(f"{force_name} is not valid. Must be one of {', '.join(force_boundaries.PFA23NM)}")
-    return force_boundaries[force_name == force_boundaries.PFA23NM].drop(
+    if corrected_force_name not in force_boundaries.PFA23NM.to_list():
+        raise ValueError(f"{corrected_force_name} is not valid. Must be one of {', '.join(force_boundaries.PFA23NM)}")
+    return force_boundaries[corrected_force_name == force_boundaries.PFA23NM].drop(
         columns=["BNG_E", "BNG_N", "LAT", "LONG", "GlobalID"]
     )
 
