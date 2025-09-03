@@ -29,4 +29,5 @@ jobs:
         # uv run mypy .
     - name: Test
       run: |
-        uv run pytest
+        # needs to be set, but doesn't need to be valid for running tests
+        SAFER_STREETS_DATA_DIR= uv run pytest
