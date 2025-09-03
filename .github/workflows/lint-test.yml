@@ -28,6 +28,8 @@ jobs:
         uv run ruff check
         # uv run mypy .
     - name: Test
-      run: |
+      env:
         # needs to be set, but doesn't need to be valid for running tests
-        SAFER_STREETS_DATA_DIR= uv run pytest
+        SAFER_STREETS_DATA_DIR: ""
+      run: |
+        uv run pytest
