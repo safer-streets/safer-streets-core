@@ -8,10 +8,9 @@ import shapely
 import typer
 from tqdm import tqdm
 
-from safer_streets_core import DATA_DIR
 from safer_streets_core.nomisweb import TableMetadata, build_geog_query, fetch, fetch_table
 from safer_streets_core.spatial import get_census_boundaries, get_force_boundary, get_street_network
-from safer_streets_core.utils import Force, tokenize_force_name
+from safer_streets_core.utils import Force, data_dir, tokenize_force_name
 
 # TODO hard-coded for now
 TABLE_NAME = "NM_2132_1"
@@ -23,7 +22,7 @@ def impl(force: str, *, seed: int = 19937) -> None:
     boundary = get_force_boundary(force)
     features = get_census_boundaries("OA21", resolution="FE", overlapping=boundary)
 
-    geog_lookup = pd.read_parquet(DATA_DIR / "census2021geographies.parquet").loc[features.index]
+    geog_lookup = pd.read_parquet(data_dir() / "census2021geographies.parquet").loc[features.index]
     nomis_area_codes = geog_lookup.NomisCode.to_list()
 
     print(f"Fetching metadata for {TABLE_NAME}...")
@@ -97,7 +96,7 @@ def impl(force: str, *, seed: int = 19937) -> None:
 
     # to avoid issues with geopandas and pyarrow/parquet, use pandas to save the data (need to convert geometry to WKT)
     exploded.geometry = shapely.to_wkt(exploded.geometry)
-    exploded.to_parquet(DATA_DIR / f"{TABLE_NAME}_assigned_{tokenize_force_name(force)}.parquet", index=False)
+    exploded.to_parquet(data_dir() / f"{TABLE_NAME}_assigned_{tokenize_force_name(force)}.parquet", index=False)
 
 
 def main() -> None:

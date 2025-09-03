@@ -14,7 +14,7 @@ import requests
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from safer_streets_core import DATA_DIR
+from safer_streets_core.utils import data_dir
 
 
 class AnnotationItem(BaseModel):
@@ -183,7 +183,7 @@ def fetch(endpoint: str, **params: str) -> dict[str, Any]:
 def fetch_table(table_name: str, **params: str) -> pd.DataFrame:
     url = f"{BASE_URL}/dataset/{table_name}.data.csv?{'&'.join(f'{k}={v}' for k, v in (params | api_key()).items())}"
     # print(url)
-    filename = Path(DATA_DIR / f"{md5(url.encode()).hexdigest()}.parquet")
+    filename = Path(data_dir() / f"{md5(url.encode()).hexdigest()}.parquet")
     if not filename.exists():
         # headers = {"User-agent": "Mozilla/5.0"}
         data = pd.read_csv(url)  # storage_options=headers (if necessary)

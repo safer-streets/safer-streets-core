@@ -17,7 +17,9 @@ dependencies = [
     "requests>=2.32.4",
     "scipy>=1.16.1",
     "shapely>=2.1.1",
+    "tqdm>=4.67.1",
     "types-shapely>=2.1.0.20250809",
+    "typer>=0.17.3",
 ]
 
 [project.scripts]

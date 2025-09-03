@@ -9,8 +9,7 @@ import pandas as pd
 import shapely
 from shapely import Polygon, transform
 
-from safer_streets_core import DATA_DIR
-from safer_streets_core.utils import Force, tokenize_force_name
+from safer_streets_core.utils import Force, data_dir, tokenize_force_name
 
 SpatialUnit = Literal["MSOA21", "LSOA21", "OA21", "GRID", "H3", "HEX", "STREET"]
 Resolution = Literal["FE", "GC", "SC"]
@@ -46,7 +45,9 @@ def _add_centroids(spatial_units: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 def get_census_boundaries(
     geography: str, *, resolution: Resolution = "GC", overlapping: gpd.GeoDataFrame | None = None
 ) -> gpd.GeoDataFrame:
-    boundaries = gpd.read_file(DATA_DIR / f"{CENSUS_BOUNDARY_FILES[geography][resolution]}").set_index(f"{geography}CD")
+    boundaries = gpd.read_file(data_dir() / f"{CENSUS_BOUNDARY_FILES[geography][resolution]}").set_index(
+        f"{geography}CD"
+    )
     boundaries.index.name = "spatial_unit"
     if overlapping is not None:
         # Drop boundaries that adjoin the overlapping area (but might overlap slightly due to rounding errors)
@@ -179,7 +180,7 @@ def get_force_boundary(force_name: Force) -> gpd.GeoDataFrame:
     }
     corrected_force_name = NAME_ADJUSTMENTS.get(force_name, force_name)
 
-    force_boundaries = gpd.read_file(DATA_DIR / "Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
+    force_boundaries = gpd.read_file(data_dir() / "Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
     if corrected_force_name not in force_boundaries.PFA23NM.to_list():
         raise ValueError(f"{corrected_force_name} is not valid. Must be one of {', '.join(force_boundaries.PFA23NM)}")
     return force_boundaries[corrected_force_name == force_boundaries.PFA23NM].drop(
@@ -258,7 +259,7 @@ def normalised_clumpiness(features: gpd.GeoDataFrame, scale: float) -> float:
 def load_population_data(force: Force) -> gpd.GeoDataFrame:
     """Loads a previously assigned point population dataset for a given force."""
     TABLE_NAME = "NM_2132_1"
-    file = DATA_DIR / f"{TABLE_NAME}_assigned_{tokenize_force_name(force)}.parquet"
+    file = data_dir() / f"{TABLE_NAME}_assigned_{tokenize_force_name(force)}.parquet"
     if not file.exists():
         raise FileNotFoundError(f"Population data for {force} not found ({file}). Run assign-population first.")
     population = pd.read_parquet(file)

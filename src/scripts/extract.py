@@ -6,12 +6,12 @@ import requests
 import typer
 from tqdm import tqdm
 
-from safer_streets_core import DATA_DIR
+from safer_streets_core.utils import data_dir
 
 # This script extracts street-level crime data from zipped CSV files and saves them as Parquet files.
 # archives can be downloaded from https://data.police.uk/data/ (see also download_archive in utils.py)
 
-OUT_PATH = DATA_DIR / "extracted/"
+OUT_PATH = data_dir() / "extracted"
 OUT_PATH.mkdir(parents=True, exist_ok=True)
 
 app = typer.Typer()
@@ -21,7 +21,7 @@ app = typer.Typer()
 def all() -> None:
     # this extracts all street-level crime data in reverse order - if a file already exists, it will be newer
     # so it is skipped
-    for zipfile in sorted(DATA_DIR.glob("police_uk_crime_data_*.zip"), reverse=True):
+    for zipfile in sorted(data_dir().glob("police_uk_crime_data_*.zip"), reverse=True):
         print(f"Extracting {zipfile}...")
         with ZipFile(zipfile) as bulk_data:
             for file in bulk_data.namelist():
@@ -72,7 +72,7 @@ def latest(*, keep_existing: bool = False) -> None:
 @app.command()
 def summary() -> None:
     data = []
-    for file in (DATA_DIR / "extracted").glob("*-street.parquet"):
+    for file in (data_dir() / "extracted").glob("*-street.parquet"):
         month = file.name[:7]
         force = file.name[8:].replace("-street.parquet", "")
         data.append((month, force))
