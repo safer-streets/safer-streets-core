@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = [
     { name = "virgesmith", email = "a.p.smith@leeds.ac.uk" }
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "geopandas>=1.1.1",
     "h3pandas>=0.3.0",
