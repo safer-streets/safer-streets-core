@@ -6,6 +6,7 @@ from functools import cache
 from itertools import zip_longest
 from pathlib import Path
 from typing import Any, Literal, Self
+from warnings import deprecated
 from zipfile import ZipFile
 
 import geopandas as gpd
@@ -418,7 +419,10 @@ def latest_month() -> Month:
 
 #     return _format_crime_data(crime_data, keep_lonlat, filters or {})
 
+# TODO move or replace all of below in measures.py
 
+
+@deprecated("Use measures.simple_lorenz_curve")
 def lorenz_curve(data: pd.Series, *, percentiles: bool = False) -> pd.Series:
     full = data.sort_values().cumsum() / data.sum()
     if percentiles:
@@ -428,6 +432,7 @@ def lorenz_curve(data: pd.Series, *, percentiles: bool = False) -> pd.Series:
     return (1 - full.set_axis(1 - np.linspace(0, 1, len(full)))).sort_index()
 
 
+@deprecated("Use measures.lorenz_curve")
 def weighted_lorenz_curve(
     data: pd.DataFrame, *, data_col: str, weight_col: str, percentiles: bool = False
 ) -> pd.Series:

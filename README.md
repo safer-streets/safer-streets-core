@@ -10,15 +10,8 @@ Using data from:
 
 ## Setup
 
-Use a common environment for all safer streets repos (apart from documentation)
-
-```sh
-uv venv --python 3.12
-uv pip install .
-```
-
-Set the env var `NOMIS_API_KEY` with your Nomis API key. Ideally put it in a `.env` file, in the safer-streets root
-directory
+Use a common environment for all safer streets repos (apart from documentation). See
+[the project page](https://github.com/safer-streets)
 
 ## Content Overview
 
