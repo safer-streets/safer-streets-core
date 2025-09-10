@@ -224,6 +224,7 @@ def _format_crime_data(crime_data: pd.DataFrame, keep_lonlat: bool, filters: dic
     ).to_crs(epsg=27700)
 
 
+@deprecated("Use load_crime_data (plus the extract script if necessary)")
 def extract_crime_data(
     force: Force, *, keep_lonlat: bool = False, filters: dict[str, Any] | None = None
 ) -> gpd.GeoDataFrame:

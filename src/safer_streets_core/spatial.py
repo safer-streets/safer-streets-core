@@ -78,7 +78,7 @@ def get_square_grid(
     grid = (
         gpd.GeoDataFrame(geometry=p, crs="EPSG:27700")
         .sjoin(boundary[["geometry"]])
-        .drop(columns="index_right", errors="ignore")
+        .drop(columns=[boundary.index.name, "index_right"], errors="ignore")
     )
     # trim features that cross the boundary (overlay removes the name of the index)
     grid = _add_centroids(grid).overlay(boundary)
@@ -112,7 +112,7 @@ def get_h3_grid(
     grid = (
         gpd.GeoDataFrame(geometry=hex.geometry, crs="EPSG:27700")
         .sjoin(boundary[["geometry"]])
-        .drop(columns="index_right", errors="ignore")
+        .drop(columns=[boundary.index.name, "index_right"], errors="ignore")
     )
     grid.index.name = "spatial_unit"
     # trim features that cross the boundary
@@ -154,7 +154,7 @@ def get_hex_grid(
     grid = (
         gpd.GeoDataFrame(geometry=p, crs="EPSG:27700")
         .sjoin(boundary[["geometry"]])
-        .drop(columns="index_right", errors="ignore")
+        .drop(columns=[boundary.index.name, "index_right"], errors="ignore")
     )
     # trim features that cross the boundary
     grid = _add_centroids(grid).overlay(boundary)
