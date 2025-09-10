@@ -6,6 +6,7 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "duckdb",
     "geopandas>=1.1.1",
     "h3pandas>=0.3.0",
     "humanleague>=2.4.1",
