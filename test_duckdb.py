@@ -1,11 +1,10 @@
-
 import duckdb
 import geopandas as gpd
-import pandas as pd
-from shapely import Point, wkb
+from shapely import Point
 
 from safer_streets_core.spatial import load_population_data
 from safer_streets_core.utils import data_dir
+
 
 def load() -> None:
     pop = load_population_data("West Yorkshire")
@@ -55,7 +54,6 @@ def query() -> None:
         result = gpd.GeoDataFrame(response.fetch_df())
         print(result)
 
-
         point = Point(432500, 422500)
         # count people within radius of a point, grouped by OA, computing the centroid of the group
         response = con.execute(f"""
@@ -81,5 +79,3 @@ def query() -> None:
 if __name__ == "__main__":
     # load()
     query()
-
-
