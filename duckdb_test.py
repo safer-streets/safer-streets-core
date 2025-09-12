@@ -1,6 +1,6 @@
 
 import geopandas as gpd
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from shapely import Point
 
 from safer_streets_core.database import duckdb_spatial_connector, to_gdf
@@ -113,7 +113,7 @@ if __name__ == "__main__":
     query()
     df = query_streets()
 
-    print(df.name)  # [["max_speed"]]) #gpd.GeoSeries.from_wkt(df.geometry))
-    ax = df.plot(figsize=(10, 10))
-    ax.set_axis_off()
-    plt.show()
+    print(df.head())  # [["max_speed"]]) #gpd.GeoSeries.from_wkt(df.geometry))
+    # ax = df.plot(figsize=(10, 10))
+    # ax.set_axis_off()
+    # plt.show()
