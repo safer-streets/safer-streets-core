@@ -63,8 +63,8 @@ def impl(force: str, *, seed: int = 19937) -> None:
     print(f"Fetching street network data for {force}...")
     street_network = get_street_network(boundary)
 
-    # TODO filter out non-residential streets
-    # print(street_network.highway.value_counts())
+    # filter out non-residential streets
+    street_network = street_network[street_network.highway.str.contains("residential")]
 
     rng = np.random.default_rng(seed)  # for reproducibility
     exploded["geometry"] = None

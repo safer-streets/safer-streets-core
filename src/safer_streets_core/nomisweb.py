@@ -58,7 +58,7 @@ class Codelists(BaseModel):
 class Contact(BaseModel):
     email: str
     name: str
-    telephone: str | None
+    telephone: str | None = None
     uri: str
 
 
@@ -143,7 +143,7 @@ class FieldMetadata(BaseModel):
 
 class TableStructure(BaseModel):
     header: Header
-    keyfamilies: Keyfamilies
+    keyfamilies: Keyfamilies | None = None
     xmlns: str
     common: str
     structure: str
@@ -191,3 +191,21 @@ def fetch_table(table_name: str, **params: str) -> pd.DataFrame:
     else:
         data = pd.read_parquet(filename)
     return data
+
+
+def resolve_table_name(table_name: str) -> str:
+    """
+    Returns the Nomis table id for an unambiguous census table name
+    Will raise ValueError if no, or multiple, matches are found
+    """
+    meta = TableMetadata(**fetch("dataset/def.sdmx.json", search=f"*{table_name}*"))
+
+    if not meta.structure.keyfamilies:
+        raise ValueError(f"No table found matching query '{table_name}'")
+
+    tables = [(kf.name.value, kf.id) for kf in meta.structure.keyfamilies.keyfamily]
+    if len(tables) > 1:
+        raise ValueError(f"""Ambiguous query - {table_name} could refer to any of:
+  {"\n  ".join(f"{t[0]} ({t[1]})" for t in tables)}
+        """)
+    return tables[0][1]

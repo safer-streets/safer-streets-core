@@ -170,6 +170,9 @@ def get_street_network(boundary: gpd.GeoDataFrame, *, network_type: str = "drive
     )
     G = ox.project_graph(G, to_crs="epsg:27700")
     _nodes, features = ox.graph_to_gdfs(G)
+    def force_string(s: str | list[str]) -> str:
+        return s if isinstance(s, str) else ",".join(s)
+    features.highway = features.highway.map(force_string)
     return features
 
 
