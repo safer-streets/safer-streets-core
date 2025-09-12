@@ -17,8 +17,8 @@ OUT_PATH.mkdir(parents=True, exist_ok=True)
 app = typer.Typer()
 
 
-@app.command()
-def all() -> None:
+@app.command(name="all")
+def all_() -> None:
     # this extracts all street-level crime data in reverse order - if a file already exists, it will be newer
     # so it is skipped
     for zipfile in sorted(data_dir().glob("police_uk_crime_data_*.zip"), reverse=True):

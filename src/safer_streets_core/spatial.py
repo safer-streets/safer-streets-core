@@ -99,7 +99,7 @@ def get_h3_grid(
     if offset:
         boundary.geometry = transform(boundary.geometry, lambda xy: xy - offset)
 
-    hex = (
+    h3cells = (
         gpd.GeoDataFrame(geometry=boundary.geometry.buffer(2000))
         .to_crs(epsg=4326)
         .h3.polyfill_resample(resolution)
@@ -107,10 +107,10 @@ def get_h3_grid(
     )
 
     if offset:
-        hex.geometry = transform(hex.geometry, lambda xy: xy + offset)
+        h3cells.geometry = transform(h3cells.geometry, lambda xy: xy + offset)
 
     grid = (
-        gpd.GeoDataFrame(geometry=hex.geometry, crs="EPSG:27700")
+        gpd.GeoDataFrame(geometry=h3cells.geometry, crs="EPSG:27700")
         .sjoin(boundary[["geometry"]])
         .drop(columns=[boundary.index.name, "index_right"], errors="ignore")
     )
@@ -194,8 +194,8 @@ def get_force_boundary(force_name: Force) -> gpd.GeoDataFrame:
 
 def snap_to_street_segment(points: gpd.GeoDataFrame, street_segments: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """Appends 2 columns to dataframe points"""
-    map, dist = street_segments.geometry.sindex.nearest(points.geometry, return_distance=True, return_all=False)
-    points.loc[:, "street_segment"] = street_segments.iloc[map[1]].index
+    map_, dist = street_segments.geometry.sindex.nearest(points.geometry, return_distance=True, return_all=False)
+    points.loc[:, "street_segment"] = street_segments.iloc[map_[1]].index
     points.loc[:, "distance"] = dist
     return points
 
