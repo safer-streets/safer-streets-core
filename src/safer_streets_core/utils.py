@@ -448,6 +448,7 @@ def weighted_lorenz_curve(
     return (1 - full.set_axis(1 - index)).sort_index()
 
 
+@deprecated("Use measures.lorenz_baseline_from_poisson")
 def poisson_lorenz_curve(lambda_: float, percentiles: bool = False) -> pd.Series:
     dist = poisson(lambda_)
     length = 5
@@ -464,6 +465,7 @@ def poisson_lorenz_curve(lambda_: float, percentiles: bool = False) -> pd.Series
     return l0
 
 
+@deprecated("Use measures.calc_gini")
 def calc_gini(data: pd.Series) -> tuple[float, pd.Series]:
     lorenz = lorenz_curve(data, percentiles=True)
     # trapezoidal rule (flipped (area above) scaled by 100 - x axis is %)
@@ -471,6 +473,7 @@ def calc_gini(data: pd.Series) -> tuple[float, pd.Series]:
     return gini, lorenz
 
 
+@deprecated("Use measures.lorenz_baseline_from_poisson")
 def poisson_lorenz_area(lambda_: float) -> float:
     # work out how many terms we need to sum
     dist = poisson(lambda_)

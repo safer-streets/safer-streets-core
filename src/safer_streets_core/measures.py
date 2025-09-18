@@ -1,4 +1,6 @@
+import numpy as np
 import pandas as pd
+from scipy.stats import poisson
 
 
 def lorenz_curve(
@@ -28,3 +30,35 @@ def lorenz_curve(
     if normalise_y:
         data = data / data.max()
     return data.sort_index()
+
+
+def lorenz_baseline_from_poisson(lambda_: float) -> pd.Series:
+    # this approach only works for pure Poisson, use the function below for other dists
+    kmax = int(1 + lambda_ * 6 * np.sqrt(lambda_))  # rule of thumb for k cutoff
+    pmf = pd.Series(poisson(lambda_).pmf(range(kmax)))
+    x = np.insert(pmf.cumsum(), 0, 0)
+    baseline = pd.Series(index=1 - x[1:], data=1 - x[:-1])
+    # baseline = pd.Series(index=(1 - pmf.cumsum()), data=(1 - pmf.cumsum()).shift().values).fillna(1)
+    baseline.loc[0.0] = 0.0
+    baseline.loc[1.0] = 1.0
+    return baseline.sort_index()
+
+
+def lorenz_baseline_from_pmf(pmf: pd.Series) -> pd.Series:
+    lorenz = pd.Series()
+    lorenz.loc[1.0] = 1.0
+
+    mean_mixture = sum(k * p for k, p in pmf.items())
+    cumulative_prob = 0.0
+    cumulative_value_share = 0.0
+    for k, p in pmf.items():
+        cumulative_prob += p
+        cumulative_value_share += (k * p) / mean_mixture
+        lorenz.loc[1 - cumulative_prob] = 1 - cumulative_value_share
+    return lorenz.sort_index()
+
+
+def calc_gini(lorenz: pd.Series, *, ref: pd.Series | None = None) -> float:
+    gini = (lorenz.index.diff() * lorenz.rolling(2).sum()).sum() / lorenz.index.max() - 1.0
+    gini_ref = ((ref.index.diff() * ref.rolling(2).sum()).sum() / ref.index.max() - 1.0) if ref is not None else 0.0
+    return gini - gini_ref  # copilot suggests / (1 - gini_ref)
