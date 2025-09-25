@@ -279,6 +279,7 @@ def load_population_data(force: Force) -> gpd.GeoDataFrame:
 def get_demographics(population: gpd.GeoDataFrame, features: gpd.GeoDataFrame) -> pd.DataFrame:
     """
     Returns a GeoDataFrame with population counts per spatial unit.
+    Note units with zero population will be omitted. Reindexing is easier on a single index
     """
     remapped = features.sjoin(population)
     return (

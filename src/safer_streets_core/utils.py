@@ -372,7 +372,7 @@ def get_monthly_crime_counts(crimes: pd.DataFrame, features: gpd.GeoDataFrame) -
         .unstack(level="Month", fill_value=0)
         .reindex(features.index, fill_value=0)
         .sort_index()
-    )
+    ).reindex(features.index, fill_value=0)
 
 
 def latest_month() -> Month:

@@ -19,7 +19,7 @@ def lorenz_curve(
         data["unit"] = 1
         weight_col = "unit"
     else:
-        data = data_in[[data_col, weight_col]]
+        data = data_in[[data_col, weight_col]].copy()
     data["order"] = data[data_col] / data[weight_col]
     data = data.sort_values(by=["order", data_col], ascending=False).cumsum().set_index(weight_col, drop=True)[data_col]
     # add origin
