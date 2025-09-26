@@ -630,10 +630,3 @@ def rank_biased_overlap(ranks: pd.DataFrame, decay: float = 0.9) -> float:
 def rank_biased_overlap_weight(p: float, n: int) -> float:
     # infinite sum of p**i = 1 / (1 - p)
     return sum(p**i for i in range(n)) * (1 - p)
-
-
-def cosine_similarity(values: pd.DataFrame):
-    # DataFrame ensure indices are consistent. Assumes 2 cols
-    col1 = values.iloc[:, 0]
-    col2 = values.iloc[:, 1]
-    return (col1 @ col2) / np.sqrt((col1 @ col1) * (col2 @ col2))

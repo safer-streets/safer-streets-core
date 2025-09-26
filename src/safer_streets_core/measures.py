@@ -62,3 +62,19 @@ def calc_gini(lorenz: pd.Series, *, ref: pd.Series | None = None) -> float:
     gini = (lorenz.index.diff() * lorenz.rolling(2).sum()).sum() / lorenz.index.max() - 1.0
     gini_ref = ((ref.index.diff() * ref.rolling(2).sum()).sum() / ref.index.max() - 1.0) if ref is not None else 0.0
     return gini - gini_ref  # copilot suggests / (1 - gini_ref)
+
+
+def cosine_similarity(values: pd.DataFrame) -> float:
+    # DataFrame ensure indices are consistent. Assumes 2 cols
+    col1 = values.iloc[:, 0]
+    col2 = values.iloc[:, 1]
+    return (col1 @ col2) / np.sqrt((col1 @ col1) * (col2 @ col2))
+
+
+# translated from https://github.com/virgesmith/demographyMicrosim/
+def diversity_coefficient(proportions: pd.Series) -> float:
+    # this causes problems if proportions are nan (e.g. when total pop=0)
+    # also values outside [0, 1] possible if proportions doesn't sum to 1
+    # assert abs(proportions.sum() - 1.0) < 1e-8, f"{proportions=} {proportions.sum()=}"
+    n = len(proportions)
+    return (1 - proportions @ proportions) * n / (n - 1)
