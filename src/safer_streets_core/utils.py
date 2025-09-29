@@ -361,14 +361,14 @@ def load_crime_data(
 
 def get_crime_counts(crimes: pd.DataFrame, features: gpd.GeoDataFrame) -> pd.DataFrame:
     "Group by spatial unit and count, ensuring features with no crimes are accounted for"
-    return crimes.groupby("spatial_unit")["Crime type"].count().rename("count").reindex(features.index, fill_value=0)
+    return crimes.groupby("spatial_unit").apply(len).rename("count").reindex(features.index, fill_value=0)
 
 
 def get_monthly_crime_counts(crimes: pd.DataFrame, features: gpd.GeoDataFrame) -> pd.DataFrame:
     "Group by spatial unit/month and count, ensuring features with no crimes are accounted for"
     return (
-        crimes.groupby(["Month", "spatial_unit"])["Crime type"]
-        .count()
+        crimes.groupby(["Month", "spatial_unit"])
+        .apply(len)
         .unstack(level="Month", fill_value=0)
         .reindex(features.index, fill_value=0)
         .sort_index()
