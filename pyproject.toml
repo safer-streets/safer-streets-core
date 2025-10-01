@@ -2,7 +2,7 @@
 name = "safer-streets-core"
 version = "0.1.0"
 authors = [
-    { name = "virgesmith", email = "a.p.smith@leeds.ac.uk" }
+    { name = "Andrew Smith", email = "a.p.smith@leeds.ac.uk" }
 ]
 requires-python = ">=3.13"
 dependencies = [
@@ -10,7 +10,8 @@ dependencies = [
     "geopandas>=1.1.1",
     "h3pandas>=0.3.0",
     "humanleague>=2.4.1",
-    "itrx>=0.1.1",
+    "itrx>=0.1.4",
+    "matplotlib>=3.10.6",
     "osmnx>=2.0.5",
     "pandas>=2.3.1",
     "pyarrow>=21.0.0",
@@ -22,6 +23,8 @@ dependencies = [
     "tqdm>=4.67.1",
     "types-shapely>=2.1.0.20250809",
     "typer>=0.17.3",
+    "azure-storage-blob>=12.26.0",
+    "azure-identity>=1.25.0",
 ]
 
 [project.scripts]

@@ -43,7 +43,7 @@ def make_radar_chart2(
 ) -> Axes:
     """
     r is rows, theta is columns
-    data is assumed to be unscaled, i.e. 1 for 100%
+    data is assumed to be in percent
     """
 
     labels = data.columns
@@ -57,7 +57,7 @@ def make_radar_chart2(
         stats = np.concatenate((row.to_numpy(), [row.to_numpy()[0]]))
         ax.plot(angles, stats, label=name)
 
-    ax.set_ylim(-1, None)
+    ax.set_ylim(-100, None)
     ax.set_thetagrids(angles * 180 / np.pi, [*labels, labels[0]])
     if r_ticks:
         plt.yticks(r_ticks)
