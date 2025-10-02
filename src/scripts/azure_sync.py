@@ -1,18 +1,15 @@
 import typer
-from itrx import Itr
 
-from safer_streets_core.azure_blob_storage import AzureBlobStorage
+from safer_streets_core.file_storage import AzureBlobStorage
 from safer_streets_core.utils import data_dir
-
 
 app = typer.Typer()
 
 files_to_skip = (
-    "UK_OAC_Final.csv", # possibly safeguarded
+    "UK_OAC_Final.csv",  # possibly safeguarded
     "test.duckdb",
-    "police_uk_crime_data_latest.zip"
+    "police_uk_crime_data_latest.zip",
 )
-
 
 
 @app.command("sync")
@@ -59,6 +56,7 @@ def sync(*, keep_existing: bool = True) -> None:
 @app.callback()
 def _callback():
     pass
+
 
 def main() -> None:
     app()

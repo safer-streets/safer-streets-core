@@ -8,7 +8,12 @@ DEFAULT_COLOUR = "#356285"
 
 
 def make_radar_chart(
-    fig: Figure, pos: int, data: pd.DataFrame, *, title: str | None = None, r_ticks: list[float | int] | None = None
+    fig: Figure,
+    pos: int,
+    data: pd.DataFrame,
+    *,
+    title: str | None = None,
+    r_ticks: dict[float | int, str] | None = None,
 ) -> Figure:
     """
     r is rows, theta is columns
@@ -30,7 +35,7 @@ def make_radar_chart(
     ax.set_ylim(-100, None)  # centre must be -100%
 
     if r_ticks:
-        plt.yticks(r_ticks)
+        plt.yticks(list(r_ticks.keys()), list(r_ticks.values()))
     if title:
         ax.set_title(title)
     ax.grid(True)
