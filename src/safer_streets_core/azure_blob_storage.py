@@ -1,14 +1,19 @@
 from io import BytesIO
 from pathlib import Path
 
-from azure.core.exceptions import ResourceExistsError
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobProperties, ContainerClient
 from itrx import Itr
 
+# TODO? async https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-upload-python#upload-blobs-asynchronously
 
 class AzureBlobStorage:
-    """Uses a service principal"""
+    """
+    Uses a service principal, credentials should be stored in .env:
+    AZURE_CLIENT_ID
+    AZURE_CLIENT_SECRET
+    AZURE_TENANT_ID
+    """
 
     def __init__(self, account_url: str, container: str) -> None:
         self._credential = DefaultAzureCredential()
@@ -20,22 +25,23 @@ class AzureBlobStorage:
     def read(self, filename: str) -> BytesIO:
         return BytesIO(self._client.download_blob(filename).readall())
 
-    def write_file(self, root_path: Path, filename: str) -> bool:
+    def write_file(self, root_path: Path, filename: str, *, overwrite: bool = False) -> bool:
         """
         Write file to azure (path in container will be filename)
         """
-        try:
-            blob_client = self._client.get_blob_client(filename)
-            with open(root_path / filename, "rb") as fd:
-                blob_client.upload_blob(fd)
-        except ResourceExistsError:
+        blob_client = self._client.get_blob_client(filename)
+        if not overwrite and blob_client.exists():
             return False
+        with open(root_path / filename, "rb") as fd:
+            blob_client.upload_blob(fd, overwrite=overwrite)
         return True
 
     def delete_file(self, filename: str) -> bool:
-        raise NotImplementedError()
-
-    # TODO update_file?
+        blob_client = self._client.get_blob_client(filename)
+        if not blob_client.exists():
+            return False
+        blob_client.delete_blob()
+        return True
 
     def write_buffer(self, data: BytesIO, name: str):
         raise NotImplementedError()

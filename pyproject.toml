@@ -30,6 +30,7 @@ dependencies = [
 [project.scripts]
 assign-population = "scripts.assign_population:main"
 extract = "scripts.extract:main"
+cloud = "scripts.azure_sync:main"
 
 [dependency-groups]
 dev = [
