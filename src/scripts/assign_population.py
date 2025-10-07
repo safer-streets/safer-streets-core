@@ -13,7 +13,7 @@ from safer_streets_core.spatial import get_census_boundaries, get_force_boundary
 from safer_streets_core.utils import Force, data_dir, tokenize_force_name
 
 # TODO hard-coded for now
-TABLE_NAME = "NM_2132_1"
+TABLE_NAME = "NM_2132_1"  # RM032
 
 
 def impl(force: str, *, seed: int = 19937) -> None:
@@ -27,6 +27,7 @@ def impl(force: str, *, seed: int = 19937) -> None:
 
     print(f"Fetching metadata for {TABLE_NAME}...")
     metadata = TableMetadata(**fetch(f"dataset/{TABLE_NAME}.def.sdmx.json"))
+
     fields = {
         a.conceptref: {"codelist": a.codelist} for a in metadata.structure.keyfamilies.keyfamily[0].components.dimension
     }
@@ -41,7 +42,7 @@ def impl(force: str, *, seed: int = 19937) -> None:
     params = {
         "date": "latest",
         "geography": build_geog_query(nomis_area_codes),
-        "c2021_eth_20": "1001...1005",
+        "c2021_eth_20": "1001...1005",  # "1...19" for more detailed
         "c2021_age_6": "1...5",
         "c_sex": "1,2",
         "select": selections,
