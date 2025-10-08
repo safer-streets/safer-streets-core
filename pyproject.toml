@@ -25,6 +25,7 @@ dependencies = [
     "typer>=0.17.3",
     "azure-storage-blob>=12.26.0",
     "azure-identity>=1.25.0",
+    "scikit-learn>=1.7.2",
 ]
 
 [project.scripts]
