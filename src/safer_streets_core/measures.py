@@ -1,4 +1,7 @@
+from itertools import zip_longest
+
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from scipy.stats import poisson
 
@@ -24,7 +27,6 @@ def lorenz_curve(
     data = data.sort_values(by=["order", data_col], ascending=False).cumsum().set_index(weight_col, drop=True)[data_col]
     # add origin
     data.loc[0.0] = 0.0
-    # return pd.Series(index=1.0 - data.index / data.index.max(), data=data[data_col]).sort_index()
     if normalise_x:
         data = data.set_axis(data.index / data.index.max())
     if normalise_y:
@@ -69,6 +71,69 @@ def cosine_similarity(values: pd.DataFrame) -> float:
     col1 = values.iloc[:, 0]
     col2 = values.iloc[:, 1]
     return (col1 @ col2) / np.sqrt((col1 @ col1) * (col2 @ col2))
+
+
+def _spearman_rank_correlation_impl(diff: pd.Series) -> float:
+    n = len(diff)
+    return 1 - 6 * (diff**2).sum() / (n * (n * n - 1))
+
+
+def spearman_rank_correlation(counts: pd.DataFrame) -> float:
+    # rank based on counts (default method "average" treats 2 tied at 3rd place as 3.5)
+    ranks = counts.apply(lambda col: col.rank(ascending=False))
+    # DataFrame ensure indices are consistent. Assumes 2 cols
+    return _spearman_rank_correlation_impl(ranks.iloc[:, 0] - ranks.iloc[:, 1])
+
+
+def spearman_rank_correlation_matrix(counts: pd.DataFrame) -> npt.NDArray:
+    """
+    Calculate the Spearman rank correlation for each pair of columns in a DataFrame.
+    Returns a symmetric matrix with correlations.
+    """
+    assert counts.index.is_unique, "Index must be unique for correlation calculation"
+    assert not counts.empty, "DataFrame must not be empty"
+
+    # Initialize a square matrix for correlations
+    n = len(counts.columns)
+    correlations = np.eye(n)
+
+    ranks = counts.apply(lambda col: col.rank(ascending=False))
+
+    for i in range(n):
+        for j in range(i):
+            correlations[i, j] = correlations[j, i] = _spearman_rank_correlation_impl(
+                ranks.iloc[:, i] - ranks.iloc[:, j]
+            )
+    return correlations
+
+
+def rank_biased_overlap(counts: pd.DataFrame, decay: float = 0.9) -> float:
+    """
+    Slightly limited home-made rank-biased overlap score.
+    Input is a 2-col dataframe (ensuring consistent indices)
+    This means there will always be a positive score due to the final term (all vs all)
+    """
+
+    # rank based on counts (default method "average" treats 2 tied at 3rd place as 3.5)
+    ranks = counts.apply(lambda col: col.rank(ascending=False))
+
+    left_sets = tuple(set(group.index) for _, group in ranks.iloc[:, 0].groupby(ranks.iloc[:, 0]))
+    right_sets = tuple(set(group.index) for _, group in ranks.iloc[:, 1].groupby(ranks.iloc[:, 1]))
+
+    num = 0.0
+    den = 0.0
+    union = set()
+    intersection = set()
+    for i, (left, right) in enumerate(zip_longest(left_sets, right_sets, fillvalue=set())):
+        # enumerate any already encountered in the other set
+        inter1 = (union & left) | (union & right)
+        # now update the union...
+        union |= left | right
+        # ...and the intersection
+        intersection |= (left & right) | inter1
+        num += decay**i * len(intersection) / len(union)
+        den += decay**i
+    return num / den
 
 
 # translated from https://github.com/virgesmith/demographyMicrosim/

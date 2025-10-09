@@ -3,7 +3,6 @@ import warnings
 from calendar import monthrange
 from collections.abc import Iterable, Iterator
 from functools import cache
-from itertools import zip_longest
 from pathlib import Path
 from typing import Any, Literal, Self
 from warnings import deprecated
@@ -12,7 +11,6 @@ from zipfile import ZipFile
 import geopandas as gpd
 import humanleague as hl
 import numpy as np
-import numpy.typing as npt
 import pandas as pd
 import requests
 from dotenv import load_dotenv
@@ -361,7 +359,12 @@ def load_crime_data(
 
 def get_crime_counts(crimes: pd.DataFrame, features: gpd.GeoDataFrame) -> pd.DataFrame:
     "Group by spatial unit and count, ensuring features with no crimes are accounted for"
-    return crimes.groupby("spatial_unit").apply(len, include_groups=False).rename("count").reindex(features.index, fill_value=0)
+    return (
+        crimes.groupby("spatial_unit")
+        .apply(len, include_groups=False)
+        .rename("count")
+        .reindex(features.index, fill_value=0)
+    )
 
 
 def get_monthly_crime_counts(crimes: pd.DataFrame, features: gpd.GeoDataFrame) -> pd.DataFrame:
@@ -499,38 +502,6 @@ def calc_adjusted_gini(lorenz: pd.Series, lambda_: float) -> float:
     return (A0 - A) / A0
 
 
-def _spearman_rank_correlation_impl(diff: pd.Series) -> float:
-    n = len(diff)
-    return 1 - 6 * (diff**2).sum() / (n * (n * n - 1))
-
-
-def spearman_rank_correlation(ranks: pd.DataFrame) -> float:
-    # DataFrame ensure indices are consistent. Assumes 2 cols
-    return _spearman_rank_correlation_impl(ranks.iloc[:, 0] - ranks.iloc[:, 1])
-
-
-def spearman_rank_correlation_matrix(counts: pd.DataFrame) -> npt.NDArray:
-    """
-    Calculate the Spearman rank correlation for each pair of columns in a DataFrame.
-    Returns a symmetric matrix with correlations.
-    """
-    assert counts.index.is_unique, "Index must be unique for correlation calculation"
-    assert not counts.empty, "DataFrame must not be empty"
-
-    # Initialize a square matrix for correlations
-    n = len(counts.columns)
-    correlations = np.eye(n)
-
-    ranks = counts.apply(lambda col: col.rank(ascending=False))
-
-    for i in range(n):
-        for j in range(i):
-            correlations[i, j] = correlations[j, i] = _spearman_rank_correlation_impl(
-                ranks.iloc[:, i] - ranks.iloc[:, j]
-            )
-    return correlations
-
-
 # # based on code from https://towardsdatascience.com/rbo-v-s-kendall-tau-to-compare-ranked-lists-of-items-8776c5182899/
 # def rank_biased_overlap1(left: list[Any], right: list[Any], p: float = 0.9) -> float:
 #     k = max(len(left), len(right))
@@ -601,32 +572,6 @@ def spearman_rank_correlation_matrix(counts: pd.DataFrame) -> npt.NDArray:
 #     return rbo_ext
 
 
-def rank_biased_overlap(ranks: pd.DataFrame, decay: float = 0.9) -> float:
-    """
-    Slightly limited home-made rank-biased overlap score.
-    Input is a 2-col dataframe (ensuring consistent indices)
-    This means there will always be a positive score due to the final term (all vs all)
-    """
-
-    left_sets = tuple(set(group.index) for _, group in ranks.iloc[:, 0].groupby(ranks.iloc[:, 0]))
-    right_sets = tuple(set(group.index) for _, group in ranks.iloc[:, 1].groupby(ranks.iloc[:, 1]))
-
-    num = 0.0
-    den = 0.0
-    union = set()
-    intersection = set()
-    for i, (left, right) in enumerate(zip_longest(left_sets, right_sets, fillvalue=set())):
-        # enumerate any already encountered in the other set
-        inter1 = (union & left) | (union & right)
-        # now update the union...
-        union |= left | right
-        # ...and the intersection
-        intersection |= (left & right) | inter1
-        num += decay**i * len(intersection) / len(union)
-        den += decay**i
-    return num / den
-
-
-def rank_biased_overlap_weight(p: float, n: int) -> float:
-    # infinite sum of p**i = 1 / (1 - p)
-    return sum(p**i for i in range(n)) * (1 - p)
+# def rank_biased_overlap_weight(p: float, n: int) -> float:
+#     # infinite sum of p**i = 1 / (1 - p)
+#     return sum(p**i for i in range(n)) * (1 - p)

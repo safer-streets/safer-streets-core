@@ -9,6 +9,7 @@ from itrx import Itr
 from shapely import LineString
 from shapely.geometry import Point, Polygon
 
+import safer_streets_core.measures as measures
 import safer_streets_core.utils as utils
 from safer_streets_core import spatial
 
@@ -85,7 +86,7 @@ def test_lorenz_curve_and_gini() -> None:
 
 def test_spearman_rank_correlation() -> None:
     data = pd.DataFrame(index=["a", "b", "c"], data={"left": [1, 2, 3], "right": [3, 2, 1]})
-    corr = utils.spearman_rank_correlation(data)
+    corr = measures.spearman_rank_correlation(data)
     assert np.isclose(corr, -1.0)
 
 
@@ -116,13 +117,14 @@ def test_snap_to_street_segment() -> None:
 def test_rank_biased_overlap() -> None:
     df = pd.DataFrame(columns=list("abcd"), data=[[0, 0, 0, 1], [0, 1, 2, 2]]).T
 
-    # Steps:
-    # Iter Left     Right   Union     Inter     Score  Weight(p=0.5)
-    # 0    {a,b,c}  {a}     {a,b,c}   {a}       1/3    1
-    # 1    {d}      {b}     {a,b,c,d} {a,b}     1/2    1/2
-    # 2             {c,d}   {a,b,c,d} {a,b,c,d} 1      1/4
-    assert utils.rank_biased_overlap(df, 1.0) == pytest.approx(11 / 18)
-    assert utils.rank_biased_overlap(df, 0.5) == pytest.approx(5 / 6 / (1 + 0.5 + 0.25))
+    # Steps (ranked in descending order):
+    # Iter Left    Right   Union     Inter      Score  Weight(p=0.5)
+    # 0    {d}     {c,d}   {c,d}     {d}        1/2    1
+    # 1    {c,a,b} {b}     {a,b,c,d} {c,b,d}    3/4    1/2
+    # 2    {}      {a}     {a,b,c,d} {c,a,b,d}  1      1/4
+
+    assert measures.rank_biased_overlap(df, 1.0) == pytest.approx(3 / 4)
+    assert measures.rank_biased_overlap(df, 0.5) == pytest.approx(9 / 14)
 
 
 def test_month_init_and_properties() -> None:
