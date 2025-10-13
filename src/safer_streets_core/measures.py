@@ -66,6 +66,13 @@ def calc_gini(lorenz: pd.Series, *, ref: pd.Series | None = None) -> float:
     return gini - gini_ref  # copilot suggests / (1 - gini_ref)
 
 
+def calc_gini0(lambda_: float) -> float:
+    """Gini value for "null hypothesis" (i.i.d. Poisson)"""
+    lorenz = lorenz_baseline_from_poisson(lambda_)
+    gini = (lorenz.index.diff() * lorenz.rolling(2).sum()).sum() / lorenz.index.max() - 1.0
+    return gini
+
+
 def cosine_similarity(values: pd.DataFrame) -> float:
     # DataFrame ensure indices are consistent. Assumes 2 cols
     col1 = values.iloc[:, 0]
