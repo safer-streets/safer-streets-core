@@ -1,7 +1,8 @@
 from io import BytesIO
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
+from azure.core.exceptions import ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import ContainerClient
 from itrx import Itr
@@ -15,6 +16,8 @@ class DataSource(Protocol):
     def list(self, startswith: str | None = None) -> Itr[str]: ...
 
     def read(self, filename: str) -> BytesIO: ...
+
+    def metadata(self, filename: str) -> Any: ...
 
     def write_file(self, root_path: Path, filename: str, *, overwrite: bool = False) -> bool: ...
 
@@ -38,6 +41,9 @@ class LocalFileStorage:
     def read(self, filename: str) -> BytesIO:
         with open(self._path / filename, "rb") as fd:
             return BytesIO(fd.read())
+
+    def metadata(self, filename: str) -> Any:
+        return (self._path / filename).stat()
 
     def write_file(self, root_path: Path, filename: str, *, overwrite: bool = False) -> bool:
         raise NotImplementedError("LocalFileStorage only supports readonly access")
@@ -66,6 +72,12 @@ class AzureBlobStorage:
 
     def read(self, filename: str) -> BytesIO:
         return BytesIO(self._client.download_blob(filename).readall())
+
+    def metadata(self, filename: str) -> Any:
+        try:
+            return self._client.get_blob_client(filename).get_blob_properties()
+        except ResourceNotFoundError:
+            return None
 
     def write_file(self, root_path: Path, filename: str, *, overwrite: bool = False) -> bool:
         """

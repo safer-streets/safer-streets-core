@@ -43,7 +43,8 @@ def lorenz_baseline_from_poisson(lambda_: float) -> pd.Series:
     # baseline = pd.Series(index=(1 - pmf.cumsum()), data=(1 - pmf.cumsum()).shift().values).fillna(1)
     baseline.loc[0.0] = 0.0
     baseline.loc[1.0] = 1.0
-    return baseline.sort_index()
+    # remove potentially duplicated values when x ~ double epsilon (happens with large lambda)
+    return baseline.sort_index()[~baseline.sort_index().index.duplicated()]
 
 
 def lorenz_baseline_from_pmf(pmf: pd.Series) -> pd.Series:
