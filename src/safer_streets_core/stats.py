@@ -3,7 +3,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
-from scipy.stats import expon, gamma, lognorm, nbinom, poisson
+from scipy.stats import expon, gamma, lognorm, nbinom, poisson, chisquare
+
+from typing import Any
+
 
 
 def poisson_fit(data: pd.Series) -> Any:
@@ -50,3 +53,18 @@ def exponential_fit(data: pd.Series) -> Any:
 def lognorm_fit(data: pd.Series) -> Any:
     shape, loc, scale = lognorm.fit(data)  # fit with fixed location at 0
     return lognorm(shape, loc=loc, scale=scale)
+
+
+def poisson_chisq(sample: pd.Series, **kwargs: Any) -> tuple[float, float]:
+    """
+    Compute chi-squared statistic and p-value, assuming sample is a Poisson distribution matching the mean of the sample
+    """
+
+    sample_pmf = sample.value_counts().sort_index() / len(sample)
+    # Pad to ensure we pick up small but non-negligible probabilities without accidentally truncating
+    kmax = sample_pmf.index.max() + 13
+    sample_pmf = sample_pmf.reindex(range(0, kmax), fill_value=0)
+    theo_pmf = pd.Series(index=sample_pmf.index, data=poisson(sample.mean()).pmf(sample_pmf.index))
+
+    return chisquare(sample_pmf.values, theo_pmf.values, **(kwargs | {"ddof": 0}))
+
