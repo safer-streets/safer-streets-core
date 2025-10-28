@@ -4,6 +4,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from scipy.stats import poisson
+from sklearn.metrics import f1_score
 
 
 def lorenz_curve(
@@ -74,6 +75,13 @@ def calc_gini0(lambda_: float) -> float:
     return gini
 
 
+def calc_overdispersion(data: pd.Series) -> float:
+    # coeff. of variation CV (std/mean) for Poisson is 1/sqrt(lambda)
+    # return the difference between the CV of the data and the Poisson value
+    lambda_ = data.mean()
+    return data.std() / lambda_ - 1 / np.sqrt(lambda_)
+
+
 def cosine_similarity(values: pd.DataFrame) -> float:
     # DataFrame ensure indices are consistent. Assumes 2 cols
     col1 = values.iloc[:, 0]
@@ -142,6 +150,12 @@ def rank_biased_overlap(counts: pd.DataFrame, decay: float = 0.9) -> float:
         num += decay**i * len(intersection) / len(union)
         den += decay**i
     return num / den
+
+
+def threshold_f1(pred_target: pd.DataFrame, threshold: float) -> float:
+    ranked = pd.concat([col.sort_values().cumsum() / col.sum() for _, col in pred_target.items()], axis=1).sort_index()
+    result = ranked > 1 - threshold
+    return f1_score(result.iloc[:, 0], result.iloc[:, 1])
 
 
 # translated from https://github.com/virgesmith/demographyMicrosim/
