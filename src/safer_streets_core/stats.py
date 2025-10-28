@@ -3,10 +3,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
-from scipy.stats import expon, gamma, lognorm, nbinom, poisson, chisquare
-
-from typing import Any
-
+from scipy.stats import chisquare, expon, gamma, lognorm, nbinom, poisson
 
 
 def poisson_fit(data: pd.Series) -> Any:
@@ -14,6 +11,7 @@ def poisson_fit(data: pd.Series) -> Any:
     return poisson(data.mean())
 
 
+# dont think this works
 def nbinom_fit(data: pd.Series) -> Any:
     # Histogram of counts (wont contain any zeros)
     values, counts_ = np.unique(data, return_counts=True)
@@ -31,6 +29,13 @@ def nbinom_fit(data: pd.Series) -> Any:
     n, p = popt
     # mu = n * (1 - p) / p
     return nbinom(n, p)
+
+
+def nbinom_poisson_gamma(data: pd.Series) -> Any:
+    alpha = data.sum()
+    scale = 1 / len(data)
+
+    return nbinom(alpha, 1 / (1 + scale))
 
 
 def gamma_fit(data: pd.Series) -> Any:
@@ -55,16 +60,25 @@ def lognorm_fit(data: pd.Series) -> Any:
     return lognorm(shape, loc=loc, scale=scale)
 
 
-def poisson_chisq(sample: pd.Series, **kwargs: Any) -> tuple[float, float]:
+def poisson_pvalue(data: pd.Series) -> float:
+    """Calculate chi-squared statistic and return p-value for Poisson goodness-of-fit.
+
+    Args:
+        data (pd.Series): Observed count data.
+
+    Returns:
+        tuple: Chi-squared statistic and p-value.
     """
-    Compute chi-squared statistic and p-value, assuming sample is a Poisson distribution matching the mean of the sample
-    """
 
-    sample_pmf = sample.value_counts().sort_index() / len(sample)
-    # Pad to ensure we pick up small but non-negligible probabilities without accidentally truncating
-    kmax = sample_pmf.index.max() + 13
-    sample_pmf = sample_pmf.reindex(range(0, kmax), fill_value=0)
-    theo_pmf = pd.Series(index=sample_pmf.index, data=poisson(sample.mean()).pmf(sample_pmf.index))
+    poisson_dist = poisson(data.mean())
+    kmax = int(poisson_dist.ppf(1 - np.sqrt(np.finfo(float).eps)))
 
-    return chisquare(sample_pmf.values, theo_pmf.values, **(kwargs | {"ddof": 0}))
+    pmf = (
+        data.value_counts(normalize=True)
+        .sort_index()
+        .reindex(range(0, kmax + 1), fill_value=0)
+        .to_frame(name="observed")
+    )
+    pmf["expected"] = poisson_dist.pmf(pmf.index)
 
+    return chisquare(pmf.observed, pmf.expected, ddof=0, sum_check=False)[1]
