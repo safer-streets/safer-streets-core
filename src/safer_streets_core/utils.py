@@ -384,44 +384,20 @@ def latest_month() -> Month:
     return Itr(files).map(lambda file: Month.parse_str(file.name[:7])).max()
 
 
-# def extract_monthly_crime_data(
-#     force: Force, month: Month, *, keep_lonlat: bool = False, filters: dict[str, Any] | None = None
-# ) -> pd.DataFrame:
-#     # NB data.police.uk says:
-#  # > "With the exception of the latest month’s archive, the data on this page is out of date and should not be used."
-#     # newest archive to contain oldest data is Apr 2017, which has data from Dec 2010
-#     # for dates after Apr 2017, get the archive 2y 11months after required date, extract the files for the first month
-#     # in the data (this will be the newest archive)
+def x_interp(data: pd.Series, new_x: pd.Index) -> pd.Series:
+    """Return linearly interpolated y values at new_x from data"""
+    combined_index = data.index.union(new_x)  # .drop_duplicates()
+    return data.reindex(combined_index).interpolate(method="linear").loc[new_x].rename("y")
 
-#     # filters allows basic filtering on values in specific columns, e.g. {"Crime type": "Anti-social behaviour"}
 
-#     if month < Month(2010, 12):
-#         raise ValueError(f"Data for {month} is not available")
-#     elif Month(2022, 5) < month:  # TODO this will need regular updating
-#         archive = "latest"
-#     elif month < Month(2014, 6):
-#         archive = "2017-04"
-#     else:
-#         archive = str(list(MonthRange(month, end=month + 36))[-1])
+def y_interp(data: pd.Series, new_y: pd.Index) -> pd.Series:
+    """Return linearly interpolated x values for new_y (inverts data)"""
+    data_inv = pd.Series(index=data, data=data.index)
+    # can have duplicated y values in data, but when inverted index must be unique
+    data_inv = data_inv[~data_inv.index.duplicated()]
+    combined_index = data_inv.index.union(new_y, sort=True)  # .drop_duplicates()
+    return data_inv.reindex(combined_index).interpolate(method="linear").loc[new_y].rename("x")
 
-#     local_file = ARCHIVE_TEMPLATE.format(archive)
-#     if not Path(local_file).exists():
-#         download_archive(archive)
-
-#     crime_data = pd.DataFrame()
-#     with ZipFile(local_file) as bulk_data:
-#         for file in bulk_data.namelist():
-#             if f"{month}-{tokenize_force_name(force)}-street" in file:
-#                 crime_data = (
-#                     pd.read_csv(bulk_data.open(file))
-#                     .set_index("Crime ID")
-#                     .drop(columns=["Last outcome category", "Context"])
-#                 )
-#                 break
-#     if crime_data.empty:
-#         raise ValueError(f"No crime data available for {force} in {month}")
-
-#     return _format_crime_data(crime_data, keep_lonlat, filters or {})
 
 # TODO move or replace all of below in measures.py
 
@@ -491,6 +467,7 @@ def poisson_lorenz_area(lambda_: float) -> float:
     return pdf @ cdf
 
 
+@deprecated("Do not use")
 def calc_adjusted_gini(lorenz: pd.Series, lambda_: float) -> float:
     """
     Calculate the adjusted Gini coefficient from a Lorenz curve and the Poisson intensity.
@@ -500,78 +477,3 @@ def calc_adjusted_gini(lorenz: pd.Series, lambda_: float) -> float:
 
     A = (1 - lorenz).sum() / len(lorenz)
     return (A0 - A) / A0
-
-
-# # based on code from https://towardsdatascience.com/rbo-v-s-kendall-tau-to-compare-ranked-lists-of-items-8776c5182899/
-# def rank_biased_overlap1(left: list[Any], right: list[Any], p: float = 0.9) -> float:
-#     k = max(len(left), len(right))
-#     x_k = len(set(left).intersection(right))
-#     summation = sum(p**i * len(set(left[:i]).intersection(right[:i])) / i for i in range(1, k + 1))
-#     return (float(x_k) / k * p**k) + ((1 - p) / p * summation)
-
-
-# def rbo_weight(p: float, n: int) -> float:
-#     """
-#     Contribution of top n rankings for a given decay constant p
-#     e.g. rbo_weight(0.9, 10) ~= 0.856
-#     """
-#     assert 0 < p <= 1
-#     s = sum(p**i / i for i in range(1, n))
-#     return 1.0 - p ** (n - 1) + ((1 - p) / p * n * (np.log(1 / (1 - p)) - s))
-
-
-# def rank_biased_overlap2(l1, l2, p=0.9):
-#     """
-#     Calculates Ranked Biased Overlap (RBO) score.
-#     l1 -- Ranked List 1
-#     l2 -- Ranked List 2
-#     """
-#     l1 = l1 or []
-#     l2 = l2 or []
-
-#     sl, ll = sorted([(len(l1), l1), (len(l2), l2)])
-#     s, S = sl
-#     l, L = ll
-#     if s == 0:
-#         return 0
-
-#     # Calculate the overlaps at ranks 1 through l
-#     # (the longer of the two lists)
-#     ss = set([])  # contains elements from the smaller list till depth i
-#     ls = set([])  # contains elements from the longer list till depth i
-#     x_d = {0: 0}
-#     sum1 = 0.0
-#     for i in range(l):
-#         x = L[i]
-#         y = S[i] if i < s else None
-#         d = i + 1
-
-#         # if two elements are same then
-#         # we don't need to add to either of the set
-#         if x == y:
-#             x_d[d] = x_d[d - 1] + 1
-#         # else add items to respective list
-#         # and calculate overlap
-#         else:
-#             ls.add(x)
-#             if y != None:
-#                 ss.add(y)
-#             x_d[d] = x_d[d - 1] + (1 if x in ss else 0) + (1 if y in ls else 0)
-#         # calculate average overlap
-#         sum1 += x_d[d] / d * pow(p, d)
-
-#     sum2 = 0.0
-#     for i in range(l - s):
-#         d = s + i + 1
-#         sum2 += x_d[d] * (d - s) / (d * s) * pow(p, d)
-
-#     sum3 = ((x_d[l] - x_d[s]) / l + x_d[s] / s) * pow(p, l)
-
-#     # Equation 32
-#     rbo_ext = (1 - p) / p * (sum1 + sum2) + sum3
-#     return rbo_ext
-
-
-# def rank_biased_overlap_weight(p: float, n: int) -> float:
-#     # infinite sum of p**i = 1 / (1 - p)
-#     return sum(p**i for i in range(n)) * (1 - p)
