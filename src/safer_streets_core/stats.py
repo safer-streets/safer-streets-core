@@ -1,5 +1,5 @@
 from typing import Any
-
+from warnings import warn
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
@@ -60,17 +60,20 @@ def lognorm_fit(data: pd.Series) -> Any:
     return lognorm(shape, loc=loc, scale=scale)
 
 
-def poisson_pvalue(data: pd.Series) -> float:
+def poisson_pvalue(data: pd.Series, *, mean: float | None = None) -> float:
     """Calculate chi-squared statistic and return p-value for Poisson goodness-of-fit.
 
     Args:
         data (pd.Series): Observed count data.
+        mean (optional float): Use the supplied mean, rather than the mean of the data
 
     Returns:
         tuple: Chi-squared statistic and p-value.
     """
 
-    poisson_dist = poisson(data.mean())
+    mean = mean or data.mean()
+
+    poisson_dist = poisson(mean)
     kmax = int(poisson_dist.ppf(1 - np.sqrt(np.finfo(float).eps)))
 
     pmf = (
@@ -82,3 +85,37 @@ def poisson_pvalue(data: pd.Series) -> float:
     pmf["expected"] = poisson_dist.pmf(pmf.index)
 
     return chisquare(pmf.observed, pmf.expected, ddof=0, sum_check=False)[1]
+
+class PoissonGammaModel:
+    """
+    Fit observed counts to a gamma distribution for each spatial unit.
+    NB-distributed counts can then be simulated
+    """
+    def __init__(self, count_data, *, seed: int | None = None) -> None:
+        self.index = count_data.index
+        # for zero counts use a nonzero count that wont affect the overall total (much)
+        n_zero_counts = (count_data.sum(axis=1) == 0).sum()
+        if n_zero_counts:
+            warn("Zero counts found in at least one spatial unit, using a threshold")
+        a_min = 0.5 / n_zero_counts
+        self.gamma_dists = gamma(np.clip(count_data.sum(axis=1), a_min, None), scale=1 / len(count_data.columns))
+        self.rng = np.random.default_rng(seed)
+
+    def means(self) -> pd.Series:
+        return pd.Series(index=self.index, data=self.gamma_dists.mean())
+
+    def vars(self) -> pd.Series:
+        return pd.Series(index=self.index, data=self.gamma_dists.var())
+
+    def simulate_lambdas(self) -> pd.Series:
+        """Gamma-distributed Poisson means"""
+        return pd.Series(index=self.index, data=self.gamma_dists.rvs(random_state=self.rng))
+
+    def simulate_counts(self, n: int, *, return_lambdas: bool = False) -> pd.DataFrame:
+        """NB-distributed counts"""
+        lambdas = self.gamma_dists.rvs(random_state=self.rng)
+        sims = pd.DataFrame(index=self.index, data={i: poisson(lambdas).rvs(random_state=self.rng) for i in range(n)})
+        if return_lambdas:
+            sims["lambda"] = lambdas
+        return sims
+
