@@ -1,5 +1,6 @@
 from typing import Any
 from warnings import warn
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
@@ -86,17 +87,19 @@ def poisson_pvalue(data: pd.Series, *, mean: float | None = None) -> float:
 
     return chisquare(pmf.observed, pmf.expected, ddof=0, sum_check=False)[1]
 
+
 class PoissonGammaModel:
     """
     Fit observed counts to a gamma distribution for each spatial unit.
     NB-distributed counts can then be simulated
     """
+
     def __init__(self, count_data, *, seed: int | None = None) -> None:
         self.index = count_data.index
         # for zero counts use a nonzero count that wont affect the overall total (much)
         n_zero_counts = (count_data.sum(axis=1) == 0).sum()
         if n_zero_counts:
-            warn("Zero counts found in at least one spatial unit, using a threshold")
+            warn("Zero counts found in at least one spatial unit, using a threshold", stacklevel=2)
         a_min = 0.5 / n_zero_counts
         self.gamma_dists = gamma(np.clip(count_data.sum(axis=1), a_min, None), scale=1 / len(count_data.columns))
         self.rng = np.random.default_rng(seed)
@@ -118,4 +121,3 @@ class PoissonGammaModel:
         if return_lambdas:
             sims["lambda"] = lambdas
         return sims
-
