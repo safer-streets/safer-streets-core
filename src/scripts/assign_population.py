@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import shapely
 import typer
+from itrx import Itr
 from tqdm import tqdm
 
 from safer_streets_core.nomisweb import TableMetadata, build_geog_query, fetch, fetch_table
@@ -23,7 +24,11 @@ def impl(force: str, *, seed: int = 19937) -> None:
     features = get_census_boundaries("OA21", resolution="FE", overlapping=boundary)
 
     geog_lookup = pd.read_parquet(data_dir() / "census2021geographies.parquet").loc[features.index]
-    nomis_area_codes = geog_lookup.NomisCode.to_list()
+
+    # query limit is 1000000 rows - and we have 50 category combinations
+    nomis_area_codes = (
+        Itr(geog_lookup.NomisCode.to_list()).batched(1_000_000 // (5 * 5 * 2)).enumerate(start=1).collect()
+    )
 
     print(f"Fetching metadata for {TABLE_NAME}...")
     metadata = TableMetadata(**fetch(f"dataset/{TABLE_NAME}.def.sdmx.json"))
@@ -39,17 +44,22 @@ def impl(force: str, *, seed: int = 19937) -> None:
             "OBS_VALUE",
         )
     )
-    params = {
-        "date": "latest",
-        "geography": build_geog_query(nomis_area_codes),
-        "c2021_eth_20": "1001...1005",  # "1...19" for more detailed
-        "c2021_age_6": "1...5",
-        "c_sex": "1,2",
-        "select": selections,
-    }
 
-    print(f"Fetching {TABLE_NAME} data for {force}...")
-    data = fetch_table(TABLE_NAME, **params)
+    chunks = []
+    for i, part in nomis_area_codes:
+        params = {
+            "date": "latest",
+            "geography": build_geog_query(part),
+            "c2021_eth_20": "1001...1005",  # "1...19" for more detailed
+            "c2021_age_6": "1...5",
+            "c_sex": "1,2",
+            "select": selections,
+        }
+
+        print(f"Fetching ({i}/{len(nomis_area_codes)}) {TABLE_NAME} data for {force}...")
+        chunks.append(fetch_table(TABLE_NAME, **params))
+    data = pd.concat(chunks)
+
     # using categories saves a ton of memory
     data.GEOGRAPHY_CODE = data.GEOGRAPHY_CODE.astype("category")
     data.C2021_ETH_20_NAME = data.C2021_ETH_20_NAME.astype("category")

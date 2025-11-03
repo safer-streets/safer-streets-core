@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Self
 from warnings import warn
 
 import numpy as np
@@ -98,11 +98,13 @@ class PoissonGammaModel:
         self.index = count_data.index
         # for zero counts use a nonzero count that wont affect the overall total (much)
         n_zero_counts = (count_data.sum(axis=1) == 0).sum()
+        a_min = 0.0
         if n_zero_counts:
             warn("Zero counts found in at least one spatial unit, using a threshold", stacklevel=2)
-        a_min = 0.5 / n_zero_counts
+            a_min = 0.5 / n_zero_counts
         self.gamma_dists = gamma(np.clip(count_data.sum(axis=1), a_min, None), scale=1 / len(count_data.columns))
         self.rng = np.random.default_rng(seed)
+        self.resample_lambdas()
 
     def means(self) -> pd.Series:
         return pd.Series(index=self.index, data=self.gamma_dists.mean())
@@ -110,14 +112,18 @@ class PoissonGammaModel:
     def vars(self) -> pd.Series:
         return pd.Series(index=self.index, data=self.gamma_dists.var())
 
-    def simulate_lambdas(self) -> pd.Series:
-        """Gamma-distributed Poisson means"""
-        return pd.Series(index=self.index, data=self.gamma_dists.rvs(random_state=self.rng))
+    def resample_lambdas(self) -> Self:
+        self._lambdas = self.gamma_dists.rvs(random_state=self.rng)
+        return self
 
-    def simulate_counts(self, n: int, *, return_lambdas: bool = False) -> pd.DataFrame:
+    @property
+    def lambdas(self) -> pd.Series:
+        """Gamma-distributed Poisson means"""
+        return self._lambdas  # pd.Series(index=self.index, data=self.gamma_dists.rvs(random_state=self.rng))
+
+    def simulate_counts(self, *, scale: float = 1.0, return_lambdas: bool = False) -> pd.DataFrame:
         """NB-distributed counts"""
-        lambdas = self.gamma_dists.rvs(random_state=self.rng)
-        sims = pd.DataFrame(index=self.index, data={i: poisson(lambdas).rvs(random_state=self.rng) for i in range(n)})
+        sims = pd.DataFrame(index=self.index, data={"count": poisson(self._lambdas * scale).rvs(random_state=self.rng)})
         if return_lambdas:
-            sims["lambda"] = lambdas
+            sims["lambda"] = self._lambdas
         return sims

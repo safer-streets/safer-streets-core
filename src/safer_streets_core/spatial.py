@@ -11,7 +11,8 @@ from shapely import Polygon, transform
 
 from safer_streets_core.utils import Force, data_dir, tokenize_force_name
 
-SpatialUnit = Literal["MSOA21", "LSOA21", "OA21", "GRID", "H3", "HEX", "STREET"]
+CensusGeography = Literal["MSOA21", "LSOA21", "OA21"]
+SpatialUnit = CensusGeography | Literal["GRID", "H3", "HEX", "STREET"]
 Resolution = Literal["FE", "GC", "SC"]
 
 # Download at least one of these from ONS
@@ -43,7 +44,7 @@ def _add_centroids(spatial_units: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
 
 def get_census_boundaries(
-    geography: str, *, resolution: Resolution = "GC", overlapping: gpd.GeoDataFrame | None = None
+    geography: CensusGeography, *, resolution: Resolution = "GC", overlapping: gpd.GeoDataFrame | None = None
 ) -> gpd.GeoDataFrame:
     boundaries = gpd.read_file(data_dir() / f"{CENSUS_BOUNDARY_FILES[geography][resolution]}").set_index(
         f"{geography}CD"
