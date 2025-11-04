@@ -58,7 +58,7 @@ def impl(force: str, *, seed: int = 19937) -> None:
 
         print(f"Fetching ({i}/{len(nomis_area_codes)}) {TABLE_NAME} data for {force}...")
         chunks.append(fetch_table(TABLE_NAME, **params))
-    data = pd.concat(chunks)
+    data = pd.concat(chunks, ignore_index=True)
 
     # using categories saves a ton of memory
     data.GEOGRAPHY_CODE = data.GEOGRAPHY_CODE.astype("category")
@@ -67,9 +67,11 @@ def impl(force: str, *, seed: int = 19937) -> None:
     data.C_SEX_NAME = data.C_SEX_NAME.astype("category")
 
     # expand to one row per person
-    exploded = (
-        data.loc[np.repeat(data.index.values, data.OBS_VALUE.values)].drop(columns=["OBS_VALUE"]).reset_index(drop=True)
-    )
+    exploded = data.loc[data.index.repeat(data.OBS_VALUE)].drop(columns="OBS_VALUE").reset_index(drop=True)
+
+    # index duplication can make this break
+    assert len(exploded) == data.OBS_VALUE.sum()
+    print(f"{force} population is {len(exploded)}")
 
     print(f"Fetching street network data for {force}...")
     street_network = get_street_network(boundary)
@@ -91,12 +93,7 @@ def impl(force: str, *, seed: int = 19937) -> None:
             continue
 
         # assign population proportionally to street segments
-        # a rounding error bug in humanleague means we need to explicitly specify the total
-        # (and no conv status is returned for this overload)
-        pop_per_street, stats = hl.integerise(
-            len(group) * local_streets.length / local_streets.length.sum(), len(group)
-        )
-        # assert stats["conv"]
+        pop_per_street, stats = hl.integerise(len(group) * local_streets.length / local_streets.length.sum())
         points = local_streets.sample_points(
             pop_per_street, rng=rng
         ).explode()  # need to explode to count intersections with individual points

@@ -182,7 +182,6 @@ def fetch(endpoint: str, **params: str) -> dict[str, Any]:
 
 def fetch_table(table_name: str, **params: str) -> pd.DataFrame:
     url = f"{BASE_URL}/dataset/{table_name}.data.csv?{'&'.join(f'{k}={v}' for k, v in (params | api_key()).items())}"
-    # print(url)
     filename = Path(data_dir() / f"{md5(url.encode()).hexdigest()}.parquet")
     if not filename.exists():
         # headers = {"User-agent": "Mozilla/5.0"}
