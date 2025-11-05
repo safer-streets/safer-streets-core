@@ -71,8 +71,8 @@ def calc_gini(lorenz: pd.Series, *, ref: pd.Series | None = None) -> float:
 def calc_gini0(lambda_: float) -> float:
     """Gini value for "null hypothesis" (i.i.d. Poisson)"""
     lorenz = lorenz_baseline_from_poisson(lambda_)
-    gini = (lorenz.index.diff() * lorenz.rolling(2).sum()).sum() / lorenz.index.max() - 1.0
-    return gini
+    gini0 = 2 * np.trapezoid(lorenz, lorenz.index) - 1.0
+    return gini0
 
 
 def calc_overdispersion(data: pd.Series) -> float:

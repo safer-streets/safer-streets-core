@@ -100,8 +100,8 @@ class PoissonGammaModel:
         n_zero_counts = (count_data.sum(axis=1) == 0).sum()
         a_min = 0.0
         if n_zero_counts:
-            warn("Zero counts found in at least one spatial unit, using a threshold", stacklevel=2)
             a_min = 0.5 / n_zero_counts
+            warn(f"Zero counts found in at least one spatial unit, using a threshold lambda={a_min}", stacklevel=2)
         self.gamma_dists = gamma(np.clip(count_data.sum(axis=1), a_min, None), scale=1 / len(count_data.columns))
         self.rng = np.random.default_rng(seed)
         self.resample_lambdas()
@@ -121,9 +121,11 @@ class PoissonGammaModel:
         """Gamma-distributed Poisson means"""
         return self._lambdas  # pd.Series(index=self.index, data=self.gamma_dists.rvs(random_state=self.rng))
 
-    def simulate_counts(self, *, scale: float = 1.0, return_lambdas: bool = False) -> pd.DataFrame:
+    def simulate_counts(self, *, n: int = 1, scale: float = 1.0, return_lambdas: bool = False) -> pd.DataFrame:
         """NB-distributed counts"""
-        sims = pd.DataFrame(index=self.index, data={"count": poisson(self._lambdas * scale).rvs(random_state=self.rng)})
+        sims = pd.DataFrame(
+            index=self.index, data={i + 1: poisson(self._lambdas * scale).rvs(random_state=self.rng) for i in range(n)}
+        )
         if return_lambdas:
             sims["lambda"] = self._lambdas
         return sims
