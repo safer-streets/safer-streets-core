@@ -63,7 +63,7 @@ def get_census_boundaries(
 
 
 def get_square_grid(
-    boundary: gpd.GeoDataFrame, *, size: float, offset: tuple[float, float] = (0.0, 0.0)
+    boundary: gpd.GeoDataFrame, *, size: float, offset: tuple[float, float] = (0.0, 0.0), trim: bool = True
 ) -> gpd.GeoDataFrame:
     assert (-size, -size) < offset < (size, size), "offsets should be smaller than size"
 
@@ -78,17 +78,19 @@ def get_square_grid(
 
     grid = (
         gpd.GeoDataFrame(geometry=p, crs="EPSG:27700")
-        .sjoin(boundary[["geometry"]])
+        # .sjoin(boundary[["geometry"]])
         .drop(columns=[boundary.index.name, "index_right"], errors="ignore")
     )
     # trim features that cross the boundary (overlay removes the name of the index)
-    grid = _add_centroids(grid).overlay(boundary)
+    grid = _add_centroids(grid)
+    if trim:
+        grid = grid.overlay(boundary)
     grid.index.name = "spatial_unit"
     return grid
 
 
 def get_h3_grid(
-    boundary: gpd.GeoDataFrame, *, resolution: int, offset: tuple[float, float] | None = None
+    boundary: gpd.GeoDataFrame, *, resolution: int, offset: tuple[float, float] | None = None, trim: bool = True
 ) -> gpd.GeoDataFrame:
     """
     Use resolution = 7 for ~4.5km2 cells, 8 for ~0.65km2 cells, 9 for ~0.1km2 cells
@@ -112,18 +114,20 @@ def get_h3_grid(
 
     grid = (
         gpd.GeoDataFrame(geometry=h3cells.geometry, crs="EPSG:27700")
-        .sjoin(boundary[["geometry"]])
+        # .sjoin(boundary[["geometry"]])
         .drop(columns=[boundary.index.name, "index_right"], errors="ignore")
     )
     grid.index.name = "spatial_unit"
     # trim features that cross the boundary
-    grid = _add_centroids(grid).overlay(boundary)
+    grid = _add_centroids(grid)
+    if trim:
+        grid = grid.overlay(boundary)
     grid.index.name = "spatial_unit"
     return grid
 
 
 def get_hex_grid(
-    boundary: gpd.GeoDataFrame, *, size: float, offset: tuple[float, float] | None = None
+    boundary: gpd.GeoDataFrame, *, size: float, offset: tuple[float, float] | None = None, trim: bool = True
 ) -> gpd.GeoDataFrame:
     "size is the length of one side. The corresponds to an area of 3/2*sqrt(3)*s**2"
 
@@ -152,13 +156,16 @@ def get_hex_grid(
     Y = np.arange(ymin // size * size - size + yoff + h, ymax // size * size + 3 * size + yoff + h, dy)
     p.extend([Polygon(hexagon(x, y)) for x in X for y in Y])
 
+    # super-slow sjoin
     grid = (
         gpd.GeoDataFrame(geometry=p, crs="EPSG:27700")
-        .sjoin(boundary[["geometry"]])
+        # .sjoin(boundary[["geometry"]])
         .drop(columns=[boundary.index.name, "index_right"], errors="ignore")
     )
     # trim features that cross the boundary
-    grid = _add_centroids(grid).overlay(boundary)
+    grid = _add_centroids(grid)
+    if trim:
+        grid = grid.overlay(boundary)
     grid.index.name = "spatial_unit"
     return grid
 

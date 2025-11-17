@@ -1,4 +1,6 @@
+from datetime import datetime
 from io import BytesIO
+from typing import Annotated
 from zipfile import ZipFile
 
 import pandas as pd
@@ -70,14 +72,19 @@ def latest(*, keep_existing: bool = False) -> None:
 
 
 @app.command()
-def summary() -> None:
-    data = []
-    for file in (data_dir() / "extracted").glob("*-street.parquet"):
-        month = file.name[:7]
-        force = file.name[8:].replace("-street.parquet", "")
-        data.append((month, force))
-    summary = pd.DataFrame(index=pd.MultiIndex.from_tuples(data), data={"ok": True})
-    typer.echo(summary.unstack(level=1, fill_value=False).sum())
+def summary(years: Annotated[int, typer.Option(min=1)] = 4) -> None:
+    year_itr = range(datetime.now().year, datetime.now().year - years, -1)
+    results = []
+    for year in year_itr:
+        data = []
+        pattern = f"{year}*-street.parquet"
+        for file in (data_dir() / "extracted").glob(pattern):
+            month = file.name[:7]
+            force = file.name[8:].replace("-street.parquet", "")
+            data.append((month, force))
+        summary = pd.DataFrame(index=pd.MultiIndex.from_tuples(data), data={"ok": True})
+        results.append(summary.unstack(level=1, fill_value=False).sum().rename(year))
+    typer.echo(pd.concat(results, axis=1).fillna(0).astype(int))
 
 
 def main() -> None:
