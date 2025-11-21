@@ -9,7 +9,7 @@ import pandas as pd
 import shapely
 from shapely import Polygon, transform
 
-from safer_streets_core.utils import Force, data_dir, tokenize_force_name
+from safer_streets_core.utils import Force, data_dir, fix_force_name, tokenize_force_name
 
 CensusGeography = Literal["MSOA21", "LSOA21", "OA21"]
 SpatialUnit = CensusGeography | Literal["GRID", "H3", "HEX", "STREET"]
@@ -188,14 +188,7 @@ def get_street_network(boundary: gpd.GeoDataFrame, *, network_type: str = "drive
 
 # not available in the police API...
 def get_force_boundary(force_name: Force) -> gpd.GeoDataFrame:
-    # correct for naming inconsistencies
-    NAME_ADJUSTMENTS = {
-        "Metropolitan": "Metropolitan Police",
-        "Devon and Cornwall": "Devon & Cornwall",
-        "City of London": "London, City of",
-        "Dyfed Powys": "Dyfed-Powys",
-    }
-    corrected_force_name = NAME_ADJUSTMENTS.get(force_name, force_name)
+    corrected_force_name = fix_force_name(force_name)
 
     force_boundaries = gpd.read_file(data_dir() / "Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
     if corrected_force_name not in force_boundaries.PFA23NM.to_list():

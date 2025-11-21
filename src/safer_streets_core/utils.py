@@ -71,6 +71,17 @@ Force = Literal[
 ]
 
 
+def fix_force_name(force: Force) -> str:
+    # the boundary file has slightly different names
+    NAME_ADJUSTMENTS = {
+        "Metropolitan": "Metropolitan Police",
+        "Devon and Cornwall": "Devon & Cornwall",
+        "City of London": "London, City of",
+        "Dyfed Powys": "Dyfed-Powys",
+    }
+    return NAME_ADJUSTMENTS.get(force, force)
+
+
 @cache
 def data_dir() -> Path:
     """Returns the data folder path or raises an error if not set"""
