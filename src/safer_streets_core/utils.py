@@ -20,7 +20,25 @@ from shapely import Polygon
 
 from safer_streets_core.models import Neighbourhoods, RawPolygon
 
-CATEGORIES = ("Violence and sexual offences", "Anti-social behaviour", "Possession of weapons")
+CrimeType = Literal[
+    "Drugs",
+    "Shoplifting",
+    "Robbery",
+    "Burglary",
+    "Criminal damage and arson",
+    "Anti-social behaviour",
+    "Bicycle theft",
+    "Violence and sexual offences",
+    "Theft from the person",
+    "Other crime",
+    "Public order",
+    "Vehicle crime",
+    "Other theft",
+    "Possession of weapons",
+]
+
+CATEGORIES: tuple[CrimeType, ...] = ("Violence and sexual offences", "Anti-social behaviour", "Possession of weapons")
+
 
 Force = Literal[
     "Avon and Somerset",
