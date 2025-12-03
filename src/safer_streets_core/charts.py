@@ -6,6 +6,8 @@ from matplotlib.figure import Figure
 
 DEFAULT_COLOUR = "#356285"
 
+DEFAULT_MAP_TILES = "CartoDB Positron"
+
 
 def make_radar_chart(
     fig: Figure,

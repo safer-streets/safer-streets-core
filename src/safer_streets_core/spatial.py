@@ -109,9 +109,6 @@ def get_h3_grid(
         .to_crs(epsg=27700)
     )
 
-    if offset:
-        h3cells.geometry = transform(h3cells.geometry, lambda xy: xy + offset)
-
     grid = (
         gpd.GeoDataFrame(geometry=h3cells.geometry, crs="EPSG:27700")
         # .sjoin(boundary[["geometry"]])
@@ -123,6 +120,11 @@ def get_h3_grid(
     if trim:
         grid = grid.overlay(boundary)
     grid.index.name = "spatial_unit"
+
+    # reverse offset if necessary
+    if offset:
+        grid.geometry = transform(grid.geometry, lambda xy: xy + offset)
+
     return grid
 
 
