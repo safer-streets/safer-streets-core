@@ -277,10 +277,10 @@ def extract_crime_data(
 
 
 def random_crime_data_by_point(
-    n: int, boundary: gpd.GeoDataFrame, months: list, *, seed: int = 19937
+    n: int, boundary: gpd.GeoDataFrame, months: list, *, random_state: np.random.Generator | int = 19937
 ) -> gpd.GeoDataFrame:
     """Sample within boundary. Larger features will tend to get more crimes"""
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(random_state) if isinstance(random_state, int) else random_state
     random = gpd.GeoDataFrame(
         geometry=boundary.sample_points(n, rng=rng).explode().to_list(),
         data={"Month": rng.choice(months, n), "Crime type": "Random"},
@@ -317,10 +317,15 @@ def quasirandom_crime_data_by_point(N: int, boundary: gpd.GeoDataFrame, months: 
 
 
 def random_crime_data_by_feature(
-    n: int, features: gpd.GeoDataFrame, months: list, *, weighted: bool = False, seed: int = 19937
+    n: int,
+    features: gpd.GeoDataFrame,
+    months: list[Month],
+    *,
+    weighted: bool = False,
+    random_state: np.random.Generator | int = 19937,
 ) -> pd.DataFrame:
     """Sample features. Larger features won't tend to get more crimes"""
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(random_state) if isinstance(random_state, int) else random_state
 
     extra_args = {}
     if weighted:

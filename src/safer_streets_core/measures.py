@@ -18,7 +18,9 @@ def lorenz_curve(
     """Full-fat version"""
     if data_in.empty:
         raise ValueError("Input is empty, cannot compute Lorenz curve")
-    if not weight_col:
+    if isinstance(data_in, pd.Series):
+        raise NotImplementedError("TODO simple series-only case implementation.")
+    elif not weight_col:
         data = data_in[[data_col]].copy()
         data["unit"] = 1
         weight_col = "unit"
@@ -35,9 +37,14 @@ def lorenz_curve(
     return data.sort_index()
 
 
+def simple_lorenz_curve(counts: pd.Series) -> pd.Series:
+    """Convenience function for calling the above with a pd.Series"""
+    return lorenz_curve(counts.rename("count").to_frame())
+
+
 def lorenz_baseline_from_poisson(lambda_: float) -> pd.Series:
     # this approach only works for pure Poisson, use the function below for other dists
-    kmax = int(1 + lambda_ * 6 * np.sqrt(lambda_))  # rule of thumb for k cutoff
+    kmax = max(10, int(1 + lambda_ * 6 * np.sqrt(lambda_)))  # rule of thumb for k cutoff
     pmf = pd.Series(poisson(lambda_).pmf(range(kmax)))
     x = np.insert(pmf.cumsum(), 0, 0)
     baseline = pd.Series(index=1 - x[1:], data=1 - x[:-1])
@@ -65,7 +72,7 @@ def lorenz_baseline_from_pmf(pmf: pd.Series) -> pd.Series:
 def calc_gini(lorenz: pd.Series, *, ref: pd.Series | None = None) -> float:
     gini = (lorenz.index.diff() * lorenz.rolling(2).sum()).sum() / lorenz.index.max() - 1.0
     gini_ref = ((ref.index.diff() * ref.rolling(2).sum()).sum() / ref.index.max() - 1.0) if ref is not None else 0.0
-    return gini - gini_ref  # copilot suggests / (1 - gini_ref)
+    return gini - gini_ref
 
 
 def calc_gini0(lambda_: float) -> float:

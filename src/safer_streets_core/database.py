@@ -23,7 +23,7 @@ def ephemeral_duckdb_spatial_connector() -> duckdb.DuckDBPyConnection:
 def add_table_from_shapefile(
     con: duckdb.DuckDBPyConnection,
     table_name: str,
-    index_col: str,
+    columns: str | list[str],
     zipfile: str,
     shapefile: str | None = None,
     *,
@@ -39,9 +39,11 @@ def add_table_from_shapefile(
             shapefile = shp_files[0]
 
     shapefile_path = f"/vsizip/{data_dir() / zipfile}/{shapefile}"
+    if isinstance(columns, list):
+        columns = ", ".join(columns)
     con.execute(
         f"""CREATE TABLE {"IF NOT EXISTS" if exists_ok else ""} {table_name} AS
-        SELECT {index_col}, geom AS geometry FROM ST_Read('{shapefile_path}');
+        SELECT {columns}, geom AS geometry FROM ST_Read('{shapefile_path}');
         """
     )
 
