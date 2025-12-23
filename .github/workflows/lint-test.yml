@@ -42,10 +42,11 @@ jobs:
       if: ${{ matrix.os == 'ubuntu-latest' }}
       uses: actions/upload-artifact@v6
       with:
-        name: wheel-dist
+        name: dist-wheel-${{ matrix.os }}-${{ matrix.python-version }}
         path: dist/*
         if-no-files-found: error
     - name: Upload coverage report
+      if: ${{ matrix.os == 'ubuntu-latest' }}
       uses: actions/upload-artifact@v6
       with:
         name: coverage-html-${{ matrix.os }}-${{ matrix.python-version }}

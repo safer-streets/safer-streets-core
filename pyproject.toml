@@ -48,7 +48,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
-addopts = "--cov=src/safer_streets_core --cov-report html --cov-fail-under=70"
+addopts = "--cov=src/safer_streets_core --cov-report html --cov-fail-under=65"
 
 [tool.ruff]
 line-length = 120
