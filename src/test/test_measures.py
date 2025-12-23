@@ -7,10 +7,16 @@ from safer_streets_core.measures import (
     calc_gini0,
     calc_modified_gini,
     calc_overdispersion,
+    cosine_similarity,
+    diversity_coefficient,
     lorenz_baseline_from_pmf,
     lorenz_baseline_from_poisson,
     lorenz_curve,
+    rank_biased_overlap,
     simple_lorenz_curve,
+    spearman_rank_correlation,
+    spearman_rank_correlation_matrix,
+    threshold_f1,
 )
 
 
@@ -156,5 +162,72 @@ def test_calc_overdispersion_uniform() -> None:
     assert overdispersion < 0.0
 
 
-if __name__ == "__main__":
-    test_lorenz_curve_no_normalisation()
+def test_spearman_rank_correlation() -> None:
+    data = pd.DataFrame(index=["a", "b", "c"], data={"left": [1, 2, 3], "right": [3, 2, 1]})
+    corr = spearman_rank_correlation(data)
+    assert np.isclose(corr, -1.0)
+
+
+def test_cosine_similarity() -> None:
+    data = pd.DataFrame({"col1": [1, 2, 3], "col2": [1, 2, 3]})
+    similarity = cosine_similarity(data)
+    assert np.isclose(similarity, 1.0)
+
+
+def test_cosine_similarity_orthogonal() -> None:
+    data = pd.DataFrame({"col1": [1, 0, 0], "col2": [0, 1, 0]})
+    similarity = cosine_similarity(data)
+    assert np.isclose(similarity, 0.0)
+
+
+def test_spearman_rank_correlation_matrix() -> None:
+    data = pd.DataFrame({"col1": [1, 2, 3], "col2": [3, 2, 1], "col3": [1, 2, 3]})
+    corr_matrix = spearman_rank_correlation_matrix(data)
+    assert corr_matrix.shape == (3, 3)
+    assert np.isclose(corr_matrix[0, 0], 1.0)
+    assert np.isclose(corr_matrix[1, 1], 1.0)
+    assert np.isclose(corr_matrix[0, 1], -1.0)
+    assert np.isclose(corr_matrix[0, 2], 1.0)
+
+
+def test_spearman_rank_correlation_matrix_empty() -> None:
+    data = pd.DataFrame()
+    with pytest.raises(AssertionError):
+        spearman_rank_correlation_matrix(data)
+
+
+def test_spearman_rank_correlation_matrix_duplicated_index() -> None:
+    data = pd.DataFrame(index=["a", "a", "b"], data={"col1": [1, 2, 3], "col2": [3, 2, 1]})
+    with pytest.raises(AssertionError):
+        spearman_rank_correlation_matrix(data)
+
+
+def test_rank_biased_overlap_identical() -> None:
+    data = pd.DataFrame({"col1": [1, 2, 3], "col2": [1, 2, 3]})
+    rbo = rank_biased_overlap(data)
+    assert np.isclose(rbo, 1.0)
+
+
+def test_rank_biased_overlap_opposite() -> None:
+    data = pd.DataFrame({"col1": [1, 2, 3], "col2": [3, 2, 1]})
+    rbo = rank_biased_overlap(data)
+    assert 0.0 < rbo < 1.0
+
+
+def test_threshold_f1() -> None:
+    data = pd.DataFrame({"col1": [0.1, 0.2, 0.9, 0.8], "col2": [0.15, 0.25, 0.85, 0.75]})
+    f1 = threshold_f1(data, threshold=0.5)
+    assert isinstance(f1, float)
+    assert 0.0 <= f1 <= 1.0
+
+
+def test_diversity_coefficient_uniform() -> None:
+    proportions = pd.Series([0.25, 0.25, 0.25, 0.25])
+    div = diversity_coefficient(proportions)
+    assert np.isclose(div, 1.0)
+
+
+def test_diversity_coefficient_single() -> None:
+    proportions = pd.Series([1.0])
+    div = diversity_coefficient(proportions)
+    assert np.isclose(div, 0.0)

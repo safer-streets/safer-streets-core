@@ -179,4 +179,6 @@ def diversity_coefficient(proportions: pd.Series) -> float:
     # also values outside [0, 1] possible if proportions doesn't sum to 1
     # assert abs(proportions.sum() - 1.0) < 1e-8, f"{proportions=} {proportions.sum()=}"
     n = len(proportions)
+    if n <= 1:
+        return 0
     return (1 - proportions @ proportions) * n / (n - 1)

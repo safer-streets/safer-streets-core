@@ -2,7 +2,6 @@ from itertools import pairwise
 from typing import get_args
 
 import geopandas as gpd
-import numpy as np
 import pandas as pd
 import pytest
 from itrx import Itr
@@ -73,21 +72,6 @@ def test_tokenize_force_name() -> None:
 
     for force in get_args(utils.Force):
         assert utils.tokenize_force_name(force) in tokenized
-
-
-def test_lorenz_curve_and_gini() -> None:
-    data = pd.Series([1, 2, 3, 4, 5])
-    lorenz = utils.lorenz_curve(data)
-    assert lorenz.loc[0.0] == 0.0
-    gini, lorenz2 = utils.calc_gini(data)
-    assert 0 <= gini <= 1
-    assert isinstance(lorenz2, pd.Series)
-
-
-def test_spearman_rank_correlation() -> None:
-    data = pd.DataFrame(index=["a", "b", "c"], data={"left": [1, 2, 3], "right": [3, 2, 1]})
-    corr = measures.spearman_rank_correlation(data)
-    assert np.isclose(corr, -1.0)
 
 
 def test_get_square_grid_offset_assertion(monkeypatch) -> None:
