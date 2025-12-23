@@ -38,6 +38,7 @@ dev = [
     "datamodel-code-generator>=0.32.0",
     "mypy>=1.17.1",
     "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
     "ruff>=0.12.8",
 ]
 
@@ -45,6 +46,9 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+addopts = "--cov=src/safer_streets_core --cov-report html --cov-fail-under=90"
 
 [tool.ruff]
 line-length = 120

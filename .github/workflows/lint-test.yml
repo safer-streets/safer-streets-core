@@ -45,3 +45,8 @@ jobs:
         name: wheel-dist
         path: dist/*
         if-no-files-found: error
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v6
+      with:
+        name: coverage-html-${{ matrix.os }}-${{ matrix.python-version }}
+        path: htmlcov/

@@ -9,7 +9,7 @@ from sklearn.metrics import f1_score
 
 def lorenz_curve(
     data_in: pd.DataFrame | pd.Series,
-    data_col: str | None = None,
+    data_col: str,
     *,
     weight_col: str | None = None,
     normalise_x: bool = True,
@@ -39,7 +39,7 @@ def lorenz_curve(
 
 def simple_lorenz_curve(counts: pd.Series) -> pd.Series:
     """Convenience function for calling the above with a pd.Series"""
-    return lorenz_curve(counts.rename("count").to_frame())
+    return lorenz_curve(counts.rename("count").to_frame(), data_col="count")
 
 
 def lorenz_baseline_from_poisson(lambda_: float) -> pd.Series:
