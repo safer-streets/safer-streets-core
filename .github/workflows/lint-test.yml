@@ -34,8 +34,9 @@ jobs:
         SAFER_STREETS_DATA_DIR: ""
       run: |
         uv run pytest
-     # Build wheel into dist/
+    # Build wheel and publish artefact (linux only)
     - name: Build wheel
+      if: ${{ matrix.os == 'ubuntu-latest' }}
       run: uv build --wheel
     - name: Upload wheel artifact
       uses: actions/upload-artifact@v6
