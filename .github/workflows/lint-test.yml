@@ -34,3 +34,12 @@ jobs:
         SAFER_STREETS_DATA_DIR: ""
       run: |
         uv run pytest
+     # Build wheel into dist/
+    - name: Build wheel
+      run: uv build --wheel
+    - name: Upload wheel artifact
+      uses: actions/upload-artifact@v6
+      with:
+        name: wheel-dist
+        path: dist/*
+        if-no-files-found: error

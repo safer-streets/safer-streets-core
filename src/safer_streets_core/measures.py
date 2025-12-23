@@ -69,6 +69,7 @@ def lorenz_baseline_from_pmf(pmf: pd.Series) -> pd.Series:
     return lorenz.sort_index()
 
 
+# TODO remove ref?
 def calc_gini(lorenz: pd.Series, *, ref: pd.Series | None = None) -> float:
     gini = (lorenz.index.diff() * lorenz.rolling(2).sum()).sum() / lorenz.index.max() - 1.0
     gini_ref = ((ref.index.diff() * ref.rolling(2).sum()).sum() / ref.index.max() - 1.0) if ref is not None else 0.0
@@ -80,6 +81,13 @@ def calc_gini0(lambda_: float) -> float:
     lorenz = lorenz_baseline_from_poisson(lambda_)
     gini0 = 2 * np.trapezoid(lorenz, lorenz.index) - 1.0
     return gini0
+
+
+def calc_modified_gini(lorenz: pd.Series, lambda_: float) -> float:
+    lorenz0 = lorenz_baseline_from_poisson(lambda_)
+    A = (lorenz.index.diff() * lorenz.rolling(2).sum()).sum() / lorenz.index.max() / 2
+    A0 = (lorenz0.index.diff() * lorenz0.rolling(2).sum()).sum() / lorenz0.index.max() / 2
+    return (A - A0) / (1.0 - A0)
 
 
 def calc_overdispersion(data: pd.Series) -> float:

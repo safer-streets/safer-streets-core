@@ -94,7 +94,7 @@ class PoissonGammaModel:
     NB-distributed counts can then be simulated
     """
 
-    def __init__(self, count_data, *, seed: int | None = None) -> None:
+    def __init__(self, count_data, *, random_state: np.random.Generator | int = 19937) -> None:
         self.index = count_data.index
         # for zero counts use a nonzero count that wont affect the overall total (much)
         n_zero_counts = (count_data.sum(axis=1) == 0).sum()
@@ -103,7 +103,7 @@ class PoissonGammaModel:
             a_min = 0.5 / n_zero_counts
             warn(f"Zero counts found in at least one spatial unit, using a threshold lambda={a_min}", stacklevel=2)
         self.gamma_dists = gamma(np.clip(count_data.sum(axis=1), a_min, None), scale=1 / len(count_data.columns))
-        self.rng = np.random.default_rng(seed)
+        self.rng = np.random.default_rng(random_state) if isinstance(random_state, int) else random_state
         self.resample_lambdas()
 
     def means(self) -> pd.Series:
