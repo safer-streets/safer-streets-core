@@ -39,6 +39,7 @@ jobs:
       if: ${{ matrix.os == 'ubuntu-latest' }}
       run: uv build --wheel
     - name: Upload wheel artifact
+      if: ${{ matrix.os == 'ubuntu-latest' }}
       uses: actions/upload-artifact@v6
       with:
         name: wheel-dist
