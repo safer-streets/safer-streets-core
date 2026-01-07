@@ -86,8 +86,10 @@ def calc_gini0(lambda_: float) -> float:
 def calc_modified_gini(lorenz: pd.Series, lambda_: float) -> float:
     lorenz0 = lorenz_baseline_from_poisson(lambda_)
     A = (lorenz.index.diff() * lorenz.rolling(2).sum()).sum() / lorenz.index.max() / 2
+    # area under maximum-concentration scenario
+    Ac = 1.0 - 0.5 / len(lorenz)
     A0 = (lorenz0.index.diff() * lorenz0.rolling(2).sum()).sum() / lorenz0.index.max() / 2
-    return (A - A0) / (1.0 - A0)
+    return (A - A0) / (Ac - A0)
 
 
 def calc_overdispersion(data: pd.Series) -> float:

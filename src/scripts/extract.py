@@ -8,7 +8,7 @@ import requests
 import typer
 from tqdm import tqdm
 
-from safer_streets_core.utils import data_dir
+from safer_streets_core.utils import data_dir, latest_month
 
 # This script extracts street-level crime data from zipped CSV files and saves them as Parquet files.
 # archives can be downloaded from https://data.police.uk/data/ (see also download_archive in utils.py)
@@ -73,7 +73,7 @@ def latest(*, keep_existing: bool = False) -> None:
 
 @app.command()
 def summary(years: Annotated[int, typer.Option(min=1)] = 4) -> None:
-    year_itr = range(datetime.now().year, datetime.now().year - years, -1)
+    year_itr = range(latest_month().year, latest_month().year - years, -1)
     results = []
     for year in year_itr:
         data = []
