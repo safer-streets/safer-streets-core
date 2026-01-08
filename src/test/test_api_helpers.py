@@ -1,11 +1,9 @@
 import json
-import os
 import types
 
 import geopandas as gpd
 import pandas as pd
 
-os.environ["SAFER_STREETS_API_URL"] = ""
 import safer_streets_core.api_helpers as api_helpers
 
 
@@ -35,7 +33,7 @@ def test_get_calls_requests_get_and_returns_json(monkeypatch):
     assert result == {"ok": True}
     assert received["url"] == "http://example.com/endpoint"
     assert received["params"] == {"q": 1}
-    assert received["headers"] == api_helpers.HEADERS
+    assert received["headers"] == api_helpers.headers()
 
 
 def test_post_calls_requests_post_and_returns_json(monkeypatch):
@@ -53,7 +51,7 @@ def test_post_calls_requests_post_and_returns_json(monkeypatch):
     assert result == {"created": True}
     assert received["url"] == "http://api.local/items"
     assert received["json"] == payload
-    assert received["headers"] == api_helpers.HEADERS
+    assert received["headers"] == api_helpers.headers()
 
 
 def test_fetch_df_uses_get_by_default(monkeypatch):

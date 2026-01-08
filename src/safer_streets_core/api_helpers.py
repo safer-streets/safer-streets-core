@@ -7,21 +7,26 @@ import geopandas as gpd
 import pandas as pd
 import requests
 
+
 # by default uses env
-URL = os.environ["SAFER_STREETS_API_URL"]
-HEADERS = {"x-api-key": os.getenv("SAFER_STREETS_API_KEY")}
+def default_url() -> str:
+    return os.environ["SAFER_STREETS_API_URL"]
+
+
+def headers() -> dict[str, str | None]:
+    return {"x-api-key": os.getenv("SAFER_STREETS_API_KEY")}
 
 
 def get(endpoint: str, *, url: str | None = None, params: dict[str, Any] | None = None) -> Any:
     """Returns the raw json from a get request"""
-    response = requests.get(f"{url or URL}/{endpoint}", params=params, headers=HEADERS)
+    response = requests.get(f"{url or default_url()}/{endpoint}", params=params, headers=headers())
     response.raise_for_status()
     return response.json()
 
 
 def post(endpoint: str, payload: Any, *, url: str | None = None) -> Any:
     """Returns the raw json from a post request"""
-    response = requests.post(f"{url or URL}/{endpoint}", json=payload, headers=HEADERS)
+    response = requests.post(f"{url or default_url()}/{endpoint}", json=payload, headers=headers())
     response.raise_for_status()
     return response.json()
 
