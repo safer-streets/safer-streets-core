@@ -1,6 +1,6 @@
 # MIT Licence
 
-Copyright &copy; 2025 The Safer Streets Researchers
+Copyright &copy; 2025-2026 The Safer Streets Researchers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
