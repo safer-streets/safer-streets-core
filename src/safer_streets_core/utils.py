@@ -71,7 +71,7 @@ Force = Literal[
     "North Wales",
     "North Yorkshire",
     "Northamptonshire",
-    "Northern Ireland",
+    # "Northern Ireland",  # whilst crime data is available, spatial and other data are not consistent with other forces
     "Northumbria",
     "Nottinghamshire",
     "South Wales",

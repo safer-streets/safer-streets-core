@@ -192,7 +192,20 @@ def get_street_network(boundary: gpd.GeoDataFrame, *, network_type: str = "drive
 def get_force_boundary(force_name: Force) -> gpd.GeoDataFrame:
     corrected_force_name = fix_force_name(force_name)
 
-    force_boundaries = gpd.read_file(data_dir() / "Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip")
+    # NI boundary not in ONS dataset (E&W)
+    force_boundaries = gpd.read_file(
+        data_dir() / "Police_Force_Areas_December_2023_EW_BFE_2734900428741300179.zip"
+    ).set_index("PFA23CD")
+
+    # Uncomment this if NI support is required. Will also potentially require DZ (~OA) and SDZ (~LSOA) boundaries
+    # ni = (
+    #     gpd.read_file(data_dir() / "ITL1_JAN_2025_UK_BUC_3847796120714293736.zip")
+    #     .rename(columns={"ITL125CD": "PFA23CD", "ITL125NM": "PFA23NM"})
+    #     .set_index("PFA23CD")
+    #     .loc[["TLN"]]
+    # )
+    # force_boundaries = pd.concat((force_boundaries, ni))
+
     if corrected_force_name not in force_boundaries.PFA23NM.to_list():
         raise ValueError(f"{corrected_force_name} is not valid. Must be one of {', '.join(force_boundaries.PFA23NM)}")
     return force_boundaries[corrected_force_name == force_boundaries.PFA23NM].drop(
@@ -211,8 +224,7 @@ def snap_to_street_segment(points: gpd.GeoDataFrame, street_segments: gpd.GeoDat
 def map_to_spatial_unit(
     raw_crime_data: gpd.GeoDataFrame, boundary: gpd.GeoDataFrame, area_type: SpatialUnit, **kwargs
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
-    crime_data = boundary[["geometry"]].sjoin(raw_crime_data, how="right").drop(columns="index_left")
-
+    crime_data = boundary[["geometry"]].sjoin(raw_crime_data, how="right")
     total_crimes = len(crime_data)
 
     # TODO crime_data may still contain points outside the boundary due to right sjoins?
