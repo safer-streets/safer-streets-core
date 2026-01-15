@@ -88,6 +88,8 @@ Force = Literal[
     "Wiltshire",
 ]
 
+DEFAULT_FORCE = 42  #
+
 
 def fix_force_name(force: Force) -> str:
     # the boundary file has slightly different names
