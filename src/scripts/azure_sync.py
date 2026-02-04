@@ -9,9 +9,9 @@ from safer_streets_core.utils import data_dir
 app = typer.Typer()
 
 files_to_skip = (
-    "UK_OAC_Final.csv",  # possibly safeguarded
-    "test.duckdb",
     "police_uk_crime_data_latest.zip",
+    "assault-by-LSOA-and-month.csv",
+    "assault-by-LSOA.csv",
 )
 
 

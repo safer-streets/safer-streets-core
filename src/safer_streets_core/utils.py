@@ -37,13 +37,16 @@ CrimeType = Literal[
     "Possession of weapons",
 ]
 
-CATEGORIES: tuple[CrimeType, ...] = ("Violence and sexual offences", "Anti-social behaviour", "Possession of weapons")
+CATEGORIES: tuple[CrimeType, ...] = (
+    "Violence and sexual offences",
+    "Anti-social behaviour",
+    "Possession of weapons",
+)
 
 
 Force = Literal[
     "Avon and Somerset",
     "Bedfordshire",
-    "BTP",
     "Cambridgeshire",
     "Cheshire",
     "City of London",
@@ -88,7 +91,7 @@ Force = Literal[
     "Wiltshire",
 ]
 
-DEFAULT_FORCE = 42  #
+DEFAULT_FORCE = 41  #
 
 
 def fix_force_name(force: Force) -> str:
@@ -279,7 +282,11 @@ def extract_crime_data(
 
 
 def random_crime_data_by_point(
-    n: int, boundary: gpd.GeoDataFrame, months: list, *, random_state: np.random.Generator | int = 19937
+    n: int,
+    boundary: gpd.GeoDataFrame,
+    months: list,
+    *,
+    random_state: np.random.Generator | int = 19937,
 ) -> gpd.GeoDataFrame:
     """Sample within boundary. Larger features will tend to get more crimes"""
     rng = np.random.default_rng(random_state) if isinstance(random_state, int) else random_state
@@ -310,7 +317,8 @@ def quasirandom_crime_data_by_point(N: int, boundary: gpd.GeoDataFrame, months: 
 
     quasirandom = gpd.GeoDataFrame(
         geometry=gpd.points_from_xy(
-            np.array(x.collect(list)) * deltax + minx, np.array(y.collect(list)) * deltay + miny
+            np.array(x.collect(list)) * deltax + minx,
+            np.array(y.collect(list)) * deltay + miny,
         ),
         data={"Month": month_seq.collect(list), "Crime type": "Quasirandom"},
         crs=boundary.crs,
@@ -379,7 +387,11 @@ def download_archive(name: str = "latest") -> bool:
 
 
 def load_crime_data(
-    force: Force, months: Iterable[Month], *, keep_lonlat: bool = False, filters: dict[str, Any] | None = None
+    force: Force,
+    months: Iterable[Month],
+    *,
+    keep_lonlat: bool = False,
+    filters: dict[str, Any] | None = None,
 ) -> gpd.GeoDataFrame:
     data = []
     force_identifier = tokenize_force_name(force)
