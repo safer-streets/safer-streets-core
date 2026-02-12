@@ -95,7 +95,7 @@ DEFAULT_FORCE = 41  #
 
 
 def fix_force_name(force: Force) -> str:
-    # the boundary file has slightly different names
+    """Only use this for the PFA boundary shapefile"""
     NAME_ADJUSTMENTS = {
         "Metropolitan": "Metropolitan Police",
         "Devon and Cornwall": "Devon & Cornwall",
@@ -525,3 +525,33 @@ def calc_adjusted_gini(lorenz: pd.Series, lambda_: float) -> float:
 
     A = (1 - lorenz).sum() / len(lorenz)
     return (A0 - A) / A0
+
+
+def force_headcount() -> pd.Series:
+    raw = pd.read_excel(
+        data_dir() / "police-workforce-sep25-tables-280126.ods",
+        sheet_name="Table_1",
+        header=4,
+        usecols=[0, 1, 4],
+    )
+
+    # strip notes (in [])
+    raw.columns = ["code", "force", "officers"]
+    raw.force = raw.force.str.replace(r"\[.*?\]", "", regex=True).str.strip()
+
+    # correct names
+    name_adjustments = {
+        "Metropolitan Police": "Metropolitan",
+        "London, City of": "City of London",
+        "Dyfed-Powys": "Dyfed Powys",
+        "Hampshire and Isle of Wight": "Hampshire",
+    }
+    raw.force = raw.force.map(lambda n: name_adjustments.get(n, n))
+
+    # strip non-PFA entries and codes
+    return (
+        raw[(raw.code.str.startswith("E23")) | (raw.code.str.startswith("W15"))]
+        .set_index("force")
+        .sort_index()
+        .officers
+    )

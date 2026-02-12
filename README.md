@@ -2,7 +2,7 @@
 
 Core tooling for the Safer Streets project
 
-Using data from:
+Using data (mainly) from:
 
 - [police.uk](https://data.police.uk/) bulk downloads/API
 - ONS for census geographies (e.g. https://geoportal.statistics.gov.uk/datasets/ons::lower-layer-super-output-areas-december-2021-boundaries-ew-bsc-v4-2/about)
@@ -10,17 +10,16 @@ Using data from:
 
 ## Setup
 
-Use a common environment for all safer streets repos (apart from documentation). See
-[the project page](https://github.com/safer-streets)
+See [the project page](https://github.com/safer-streets)
 
 ## Content Overview
 
 ### General
 
 - Police & crime metadata
-- Data retrieval and man
+- Data retrieval and management
 - Concentration computations: Lorenz, Gini etc
-- Similarity computations, e.g rank correlation
+- Similarity/stability computations, e.g rank correlation
 
 ### Statistical
 

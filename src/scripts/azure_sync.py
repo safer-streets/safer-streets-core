@@ -10,6 +10,7 @@ app = typer.Typer()
 
 files_to_skip = (
     "police_uk_crime_data_latest.zip",
+    "test.duckdb",
     "assault-by-LSOA-and-month.csv",
     "assault-by-LSOA.csv",
 )
