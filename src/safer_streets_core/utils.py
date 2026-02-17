@@ -15,7 +15,6 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 from itrx import Itr
-from scipy.stats import poisson
 from shapely import Polygon
 
 from safer_streets_core.models import Neighbourhoods, RawPolygon
@@ -445,86 +444,6 @@ def y_interp(data: pd.Series, new_y: pd.Index) -> pd.Series:
     data_inv = data_inv[~data_inv.index.duplicated()]
     combined_index = data_inv.index.union(new_y, sort=True)  # .drop_duplicates()
     return data_inv.reindex(combined_index).interpolate(method="linear").loc[new_y].rename("x")
-
-
-# TODO move or replace all of below in measures.py
-
-
-@deprecated("Use measures.simple_lorenz_curve")
-def lorenz_curve(data: pd.Series, *, percentiles: bool = False) -> pd.Series:
-    full = data.sort_values().cumsum() / data.sum()
-    if percentiles:
-        x = np.linspace(0, 1, 101)
-        return pd.Series(index=1 - x, data=1 - np.percentile(full, x * 100)).sort_index()
-    # normalise the x axis
-    return (1 - full.set_axis(1 - np.linspace(0, 1, len(full)))).sort_index()
-
-
-@deprecated("Use measures.lorenz_curve")
-def weighted_lorenz_curve(
-    data: pd.DataFrame, *, data_col: str, weight_col: str, percentiles: bool = False
-) -> pd.Series:
-    tempdf = data[[data_col, weight_col]].copy()
-    tempdf["ordering"] = tempdf[data_col] / tempdf[weight_col]
-    tempdf = tempdf.sort_values(by="ordering")
-    full = tempdf[data_col].cumsum() / tempdf[data_col].sum()
-    index = tempdf[weight_col].cumsum() / tempdf[weight_col].sum()
-
-    if percentiles:
-        raise NotImplementedError("TODO if required - interpolate (index, full)")
-    return (1 - full.set_axis(1 - index)).sort_index()
-
-
-@deprecated("Use measures.lorenz_baseline_from_poisson")
-def poisson_lorenz_curve(lambda_: float, percentiles: bool = False) -> pd.Series:
-    dist = poisson(lambda_)
-    length = 5
-    threshold = 1.0 - np.finfo(float).eps
-    while dist.cdf(length) < threshold:
-        length += 1
-    cdf = [dist.cdf(k) for k in range(-1, length + 1)]
-    # flip curve
-    l0 = pd.Series(index=[1 - x for x in (0, *cdf[1:])], data=[1 - y for y in (0, *cdf[:-1])]).sort_index()
-    l0[1.0] = 1.0  # this overwrites rather than appends so avoids duplicates
-    if percentiles:
-        x = np.linspace(0, 1, 101)
-        return pd.Series(index=x, data=np.interp(x, l0.index, l0))
-    return l0
-
-
-@deprecated("Use measures.calc_gini")
-def calc_gini(data: pd.Series) -> tuple[float, pd.Series]:
-    lorenz = lorenz_curve(data, percentiles=True)
-    # trapezoidal rule (flipped (area above) scaled by 100 - x axis is %)
-    gini = 1.0 - (1.0 - lorenz).rolling(2).mean().sum() / 50.0
-    return gini, lorenz
-
-
-@deprecated("Use measures.lorenz_baseline_from_poisson")
-def poisson_lorenz_area(lambda_: float) -> float:
-    # work out how many terms we need to sum
-    dist = poisson(lambda_)
-    length = 5
-    threshold = 1 - np.finfo(float).eps
-    while dist.cdf(length) < threshold:
-        length += 1
-
-    # sum( p(k) * (P(k-1) + P(k-2)) / 2)
-    pdf = dist.pmf(range(1, length))
-    cdf = (dist.cdf(range(-1, length - 2)) + dist.cdf(range(length - 1))) / 2
-    return pdf @ cdf
-
-
-@deprecated("Do not use")
-def calc_adjusted_gini(lorenz: pd.Series, lambda_: float) -> float:
-    """
-    Calculate the adjusted Gini coefficient from a Lorenz curve and the Poisson intensity.
-    """
-
-    A0 = poisson_lorenz_area(lambda_)
-
-    A = (1 - lorenz).sum() / len(lorenz)
-    return (A0 - A) / A0
 
 
 def force_headcount() -> pd.Series:

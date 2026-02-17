@@ -111,7 +111,7 @@ class TestLoadPopulationData:
         mock_data_dir.return_value = tmp_path
         mock_tokenize.return_value = "nonexistent_force"
         with pytest.raises(FileNotFoundError):
-            load_population_data("Nonexistent Force")
+            load_population_data("Nonexistent Force")  # ty: ignore[invalid-argument-type]
 
 
 class TestGetDemographics:

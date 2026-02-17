@@ -3,6 +3,7 @@
 #   timestamp: 2025-06-05T07:10:04+00:00
 
 import os
+from collections.abc import Iterable
 from functools import cache
 from hashlib import md5
 from itertools import groupby
@@ -155,7 +156,7 @@ class TableMetadata(BaseModel):
     structure: TableStructure
 
 
-def build_geog_query(codes: list[int]) -> str:
+def build_geog_query(codes: Iterable[int]) -> str:
     sequences = []
     for _key, group in groupby(enumerate(sorted(codes)), lambda item: item[1] - item[0]):
         items = list(group)  # Convert to list to easily access first and last elements

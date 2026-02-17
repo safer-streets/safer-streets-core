@@ -1,6 +1,6 @@
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from azure.core.exceptions import ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
@@ -71,7 +71,7 @@ class AzureBlobStorage:
         return Itr(self._client.list_blobs(name_starts_with=startswith)).map(lambda f: f.name)
 
     def read(self, filename: str) -> BytesIO:
-        return BytesIO(self._client.download_blob(filename).readall())
+        return BytesIO(cast(bytes, self._client.download_blob(filename).readall()))
 
     def metadata(self, filename: str) -> Any:
         try:

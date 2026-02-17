@@ -18,7 +18,7 @@ TABLE_NAME = "NM_2132_1"  # RM032
 
 
 def impl(force: str, *, seed: int = 19937) -> None:
-    force = cast(Force, force)  # type: ignore
+    force = cast(Force, force)
     print(f"Fetching OA21 boundaries for {force}...")
     boundary = get_force_boundary(force)
     features = get_census_boundaries("OA21", resolution="FE", overlapping=boundary)

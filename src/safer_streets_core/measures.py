@@ -103,7 +103,7 @@ def cosine_similarity(values: pd.DataFrame) -> float:
     # DataFrame ensure indices are consistent. Assumes 2 cols
     col1 = values.iloc[:, 0]
     col2 = values.iloc[:, 1]
-    return (col1 @ col2) / np.sqrt((col1 @ col1) * (col2 @ col2))
+    return (col1 @ col2) / np.sqrt((col1 @ col1) * (col2 @ col2))  # ty: ignore[unsupported-operator]
 
 
 def _spearman_rank_correlation_impl(diff: pd.Series) -> float:
@@ -183,4 +183,4 @@ def diversity_coefficient(proportions: pd.Series) -> float:
     n = len(proportions)
     if n <= 1:
         return 0
-    return (1 - proportions @ proportions) * n / (n - 1)
+    return (1 - proportions @ proportions) * n / (n - 1)  # ty: ignore[unsupported-operator]

@@ -86,7 +86,7 @@ def test_get_square_grid_offset_assertion(monkeypatch) -> None:
         ),
     )
     with pytest.raises(AssertionError):
-        spatial.get_square_grid(spatial.get_force_boundary("Test"), size=1.0, offset=(2.0, 2.0))
+        spatial.get_square_grid(spatial.get_force_boundary("Test"), size=1.0, offset=(2.0, 2.0))  # ty: ignore[invalid-argument-type]
 
 
 def test_snap_to_street_segment() -> None:

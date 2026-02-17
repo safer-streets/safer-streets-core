@@ -18,6 +18,7 @@ def ephemeral_duckdb_spatial_connector() -> duckdb.DuckDBPyConnection:
         return con
     except Exception:
         con.close()
+        raise
 
 
 def add_table_from_shapefile(

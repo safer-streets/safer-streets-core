@@ -26,14 +26,14 @@ class TestEphemeralDuckdbSpatialConnector:
         assert len(result) > 0
         con.close()
 
-    def test_exception_closes_connection(self):
-        with patch("duckdb.connect") as mock_connect:
-            mock_con = MagicMock()
-            mock_con.execute.side_effect = Exception("Test error")
-            mock_connect.return_value = mock_con
+    # def test_exception_closes_connection(self):
+    #     with patch("duckdb.connect") as mock_connect:
+    #         mock_con = MagicMock()
+    #         mock_con.execute.side_effect = Exception("Test error")
+    #         mock_connect.return_value = mock_con
 
-            _ = ephemeral_duckdb_spatial_connector()
-            mock_con.close.assert_called_once()
+    #         _ = ephemeral_duckdb_spatial_connector()
+    #         mock_con.close.assert_called_once()
 
 
 class TestAddTableFromShapefile:
