@@ -1,3 +1,4 @@
+import warnings
 from itertools import pairwise
 from typing import Any, Literal
 
@@ -114,29 +115,26 @@ def get_h3_grid(
         boundary.geometry = transform(boundary.geometry, lambda xy: xy - offset)
 
     h3cells = (
-        gpd.GeoDataFrame(geometry=boundary.geometry.buffer(2000))
+        gpd.GeoDataFrame(geometry=boundary.geometry)  # .buffer(2000) has been removed
         .to_crs(epsg=4326)
         .h3.polyfill_resample(resolution)
         .to_crs(epsg=27700)
-    )
+    ).drop(columns="PFA23CD")
 
-    grid = (
-        gpd.GeoDataFrame(geometry=h3cells.geometry, crs="EPSG:27700")
-        # .sjoin(boundary[["geometry"]])
-        .drop(columns=[boundary.index.name, "index_right"], errors="ignore")
-    )
-    grid.index.name = "spatial_unit"
-    # trim features that cross the boundary
-    grid = _add_centroids(grid)
+    h3cells.index.name = "spatial_unit"
+
+    h3cells = _add_centroids(h3cells)
     if trim:
-        grid = grid.overlay(boundary)
-    grid.index.name = "spatial_unit"
+        warnings.warn("H3 geometries do not support trimming", stacklevel=2)
+
+    return h3cells
 
     # reverse offset if necessary
+    # should probably change the id if they are offset?
     if offset:
-        grid.geometry = transform(grid.geometry, lambda xy: xy + offset)
+        h3cells.geometry = transform(h3cells.geometry, lambda xy: xy + offset)
 
-    return grid
+    return h3cells
 
 
 def get_hex_grid(
@@ -314,7 +312,7 @@ def load_population_data(force: Force) -> gpd.GeoDataFrame:
     TABLE_NAME = "NM_2132_1"
     file = data_dir() / f"{TABLE_NAME}_assigned_{tokenize_force_name(force)}.parquet"
     if not file.exists():
-        raise FileNotFoundError(f"Population data for {force} not found ({file}). Run assign-population first.")
+        raise FileNotFoundError(f"Population data for {force} not found ({file}).")
     population = pd.read_parquet(file)
     population.geometry = shapely.from_wkt(population.geometry)
     return gpd.GeoDataFrame(population, crs="EPSG:27700")
