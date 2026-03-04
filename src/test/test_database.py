@@ -9,19 +9,18 @@ import pytest
 from safer_streets_core.database import (
     add_table_from_shapefile,
     duckdb_spatial_connector,
-    ephemeral_duckdb_spatial_connector,
     to_gdf,
 )
 
 
 class TestEphemeralDuckdbSpatialConnector:
     def test_returns_duckdb_connection(self):
-        con = ephemeral_duckdb_spatial_connector()
+        con = duckdb_spatial_connector()
         assert isinstance(con, duckdb.DuckDBPyConnection)
         con.close()
 
     def test_spatial_extension_loaded(self):
-        con = ephemeral_duckdb_spatial_connector()
+        con = duckdb_spatial_connector()
         result = con.execute("SELECT COUNT(*) FROM duckdb_functions() WHERE function_name='st_read';").fetchall()
         assert len(result) > 0
         con.close()
@@ -93,38 +92,6 @@ class TestAddTableFromShapefile:
 
         call_args = mock_con.execute.call_args[0][0]
         assert "IF NOT EXISTS" in call_args
-
-
-class TestDuckdbSpatialConnector:
-    @patch("duckdb.connect")
-    def test_context_manager_yields_connection(self, mock_connect):
-        mock_con = MagicMock()
-        mock_connect.return_value = mock_con
-
-        with duckdb_spatial_connector("test.db") as con:
-            assert con == mock_con
-
-        mock_con.close.assert_called_once()
-
-    @patch("duckdb.connect")
-    def test_closes_connection_on_exception(self, mock_connect):
-        mock_con = MagicMock()
-        mock_connect.return_value = mock_con
-
-        with pytest.raises(ValueError), duckdb_spatial_connector("test.db"):
-            raise ValueError("Test error")
-
-        mock_con.close.assert_called_once()
-
-    @patch("duckdb.connect")
-    def test_read_only_parameter(self, mock_connect):
-        mock_con = MagicMock()
-        mock_connect.return_value = mock_con
-
-        with duckdb_spatial_connector("test.db", read_only=False):
-            pass
-
-        mock_connect.assert_called_with(database="test.db", read_only=False)
 
 
 class TestToGdf:
