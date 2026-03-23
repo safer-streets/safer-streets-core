@@ -1538,7 +1538,7 @@ dev = [
 requires-dist = [
     { name = "azure-identity", specifier = ">=1.25.0" },
     { name = "azure-storage-blob", specifier = ">=12.26.0" },
-    { name = "duckdb" },
+    { name = "duckdb", specifier = "<1.5" },
     { name = "geopandas", specifier = ">=1.1.1" },
     { name = "h3pandas", specifier = ">=0.3.0" },
     { name = "humanleague", specifier = ">=2.4.1" },
