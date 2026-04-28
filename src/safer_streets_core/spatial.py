@@ -1,16 +1,26 @@
 import warnings
 from itertools import pairwise
+from pathlib import Path
 from typing import Any, Literal
+from zipfile import ZipFile
 
 import geopandas as gpd
 import h3pandas  # noqa (implicitly required)
 import numpy as np
 import osmnx as ox
 import pandas as pd
+import requests
 import shapely
+from duckdb import DuckDBPyConnection
 from shapely import Polygon, transform
 
-from safer_streets_core.utils import Force, data_dir, fix_force_name, tokenize_force_name
+from safer_streets_core.utils import (
+    Force,
+    data_dir,
+    data_source,
+    fix_force_name,
+    tokenize_force_name,
+)
 
 CensusGeography = Literal["MSOA21", "LSOA21", "OA21"]
 SpatialUnit = CensusGeography | Literal["GRID", "H3", "HEX", "STREET"]
@@ -351,3 +361,33 @@ def hex_neighbours(spatial_unit: int):
         spatial_unit + sign * (_STRIDE + _INTERLEAVE),
         spatial_unit + sign * (_STRIDE + _INTERLEAVE + 1),
     ]
+
+
+def fetch_geometry(name: str, con: DuckDBPyConnection):
+    url = data_source(name)
+
+    tmp = Path("/tmp/geometry.zip")
+
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
+
+    with open(tmp, "wb") as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
+
+    with ZipFile(tmp) as z:
+        shp_files = [p for p in z.namelist() if p.lower().endswith(".shp")]
+        if not shp_files:
+            raise FileNotFoundError("No .shp files found")
+        if len(shp_files) > 1:
+            raise ValueError("Multiple .shp files found")
+        shapefile = shp_files[0]
+
+    shapefile_path = f"zip://{tmp}/{shapefile}"
+    con.execute(
+        f"""
+        DROP TABLE IF EXISTS {name};
+        CREATE TABLE IF NOT EXISTS {name} AS
+        SELECT * EXCLUDE geom, geom AS geometry FROM ST_Read('{shapefile_path}');
+        """
+    )

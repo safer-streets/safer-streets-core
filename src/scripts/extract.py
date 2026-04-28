@@ -7,6 +7,7 @@ import requests
 import typer
 from tqdm import tqdm
 
+from safer_streets_core.database import duckdb_spatial_connector
 from safer_streets_core.utils import data_dir, latest_month
 
 # This script extracts street-level crime data from zipped CSV files and saves them as Parquet files.
@@ -39,6 +40,7 @@ def all_() -> None:
                 )
 
 
+# TODO deprecate in favour of DB
 @app.command()
 def latest(*, keep_existing: bool = False) -> None:
     # extract the latest archive and overwrite any existing data
@@ -68,6 +70,40 @@ def latest(*, keep_existing: bool = False) -> None:
                 outfile,
                 index=True,
             )
+
+
+@app.command()
+def to_database() -> None:
+    # extract the latest archive and overwrite any existing data
+    zipfile = "https://data.police.uk/data/archive/latest.zip"
+    print(f"Downloading {zipfile}...")
+    response = requests.get(zipfile, stream=True)
+    file_size = int(response.headers.get("content-length", 0))
+
+    with open("/tmp/latest.zip", "wb") as fd, tqdm(total=file_size, unit="B", unit_scale=True) as progress_bar:
+        for data in response.iter_content(1024**2):
+            progress_bar.update(len(data))
+            fd.write(data)
+
+    print("Creating table crime_data...")
+    con = duckdb_spatial_connector(data_dir() / "safer_streets.db")
+
+    # limited support for **/ glob, but ????-?? is a reasonable workaround
+    con.execute("""
+    DROP TABLE IF EXISTS crime_data;
+    CREATE TABLE crime_data AS
+    SELECT * FROM read_csv('zip://../data/police_uk_crime_data_latest.zip/????-??/*-street.csv', normalize_names = true);
+    ALTER TABLE crime_data ADD COLUMN geometry GEOMETRY;
+    UPDATE crime_data
+    SET geometry =
+        ST_Transform(
+            ST_Point(Longitude, Latitude),
+            'EPSG:4326',
+            'EPSG:27700',
+            always_xy := true
+        )
+    WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
+    """)
 
 
 @app.command()

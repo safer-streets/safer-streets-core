@@ -37,6 +37,7 @@ cloud = "scripts.azure_sync:main"
 [dependency-groups]
 dev = [
     "datamodel-code-generator>=0.32.0",
+    "pre-commit>=4.6.0",
     "pytest>=8.4.1",
     "pytest-cov>=6.2.1",
     "ruff>=0.12.8",

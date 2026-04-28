@@ -13,6 +13,8 @@ files_to_skip = (
     "test.duckdb",
     "assault-by-LSOA-and-month.csv",
     "assault-by-LSOA.csv",
+    "hex_crime_dataset2_2025-03.parquet",
+    "great-britain-260326.osm.pbf",
 )
 
 

@@ -1,3 +1,4 @@
+import json
 import os
 import warnings
 from calendar import monthrange
@@ -444,6 +445,19 @@ def y_interp(data: pd.Series, new_y: pd.Index) -> pd.Series:
     data_inv = data_inv[~data_inv.index.duplicated()]
     combined_index = data_inv.index.union(new_y, sort=True)  # .drop_duplicates()
     return data_inv.reindex(combined_index).interpolate(method="linear").loc[new_y].rename("x")
+
+
+def data_source(key: str) -> str:
+    """
+    Mapping of data source names to remote locations, read from a json file
+    Allows customisation and correction when locations change without a full redeployment
+    File is loaded every time so that applications don't need to be restarted
+    """
+    with open(data_dir() / "data_sources.json") as fd:
+        data_sources = json.load(fd)
+    if key not in data_sources:
+        raise ValueError(f"key {key} does not map to a data source. Check {data_dir()}/data_sources.json")
+    return data_sources[key]
 
 
 def force_headcount() -> pd.Series:

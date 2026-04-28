@@ -13,8 +13,9 @@ def duckdb_spatial_connector(db: Path | None = None) -> duckdb.DuckDBPyConnectio
     con = duckdb.connect(database=db or ":memory:")
     try:
         con.execute("INSTALL spatial;LOAD spatial;")
-        # H3 extension
+        # H3 and zipfile extensions
         con.execute("INSTALL h3 FROM community;LOAD h3;")
+        con.execute("INSTALL zipfs FROM community;LOAD zipfs;")
         return con
     except Exception:
         con.close()
@@ -68,3 +69,17 @@ def to_gdf(df: pd.DataFrame, wkt_col: str) -> gpd.GeoDataFrame:
         geometry=gpd.GeoSeries.from_wkt(df[wkt_col]),
         crs="EPSG:27700",
     )
+
+
+def fix_force_names(con, table: str, column: str) -> None:
+    con.execute(f"""
+    UPDATE {table}
+    SET {column} =
+        CASE {column}
+            WHEN 'Metropolitan Police' THEN 'Metropolitan'
+            WHEN 'Devon &amp; Cornwall' THEN 'Devon and Cornwall'
+            WHEN 'London, City of' THEN 'City of London'
+            WHEN 'Dyfed-Powys' THEN 'Dyfed Powys'
+            ELSE {column}
+        END;
+    """)
