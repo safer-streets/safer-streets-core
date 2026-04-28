@@ -12,7 +12,7 @@ import pandas as pd
 import requests
 import shapely
 from duckdb import DuckDBPyConnection
-from shapely import Polygon, transform
+from shapely import Polygon
 
 from safer_streets_core.utils import (
     Force,
@@ -111,7 +111,6 @@ def get_h3_grid(
     boundary: gpd.GeoDataFrame,
     *,
     resolution: int,
-    offset: tuple[float, float] | None = None,
     trim: bool = True,
 ) -> gpd.GeoDataFrame:
     """
@@ -121,8 +120,6 @@ def get_h3_grid(
     """
     # to offset hex grid without causing overlap mismatches:
     # shift boundary by -offset -> get hex grid -> shift grid by offset
-    if offset:
-        boundary.geometry = transform(boundary.geometry, lambda xy: xy - offset)
 
     h3cells = (
         gpd.GeoDataFrame(geometry=boundary.geometry)  # .buffer(2000) has been removed
@@ -136,13 +133,6 @@ def get_h3_grid(
     h3cells = _add_centroids(h3cells)
     if trim:
         warnings.warn("H3 geometries do not support trimming", stacklevel=2)
-
-    return h3cells
-
-    # reverse offset if necessary
-    # should probably change the id if they are offset?
-    if offset:
-        h3cells.geometry = transform(h3cells.geometry, lambda xy: xy + offset)
 
     return h3cells
 
