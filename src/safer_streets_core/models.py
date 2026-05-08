@@ -11,7 +11,7 @@ class Neighbourhood(BaseModel):
 
 class Neighbourhoods(RootModel[list[Neighbourhood]]):
     # TODO force enum/literal
-    def __iter__(self) -> Iterator[Neighbourhood]:  # type: ignore[overload]
+    def __iter__(self) -> Iterator[Neighbourhood]:  # ty: ignore[invalid-method-override]
         return iter(self.root)
 
     def __getitem__(self, i: int) -> Neighbourhood:

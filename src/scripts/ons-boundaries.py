@@ -66,6 +66,7 @@ import geopandas as gpd
 import requests
 import typer
 
+from safer_streets_core.database import duckdb_spatial_connector
 from safer_streets_core.utils import data_dir
 
 # ---------------------------------------------------------------------------
@@ -202,6 +203,8 @@ def features_to_gdf(features: list[dict], crs: str):
     """
     fc = {"type": "FeatureCollection", "features": features}
     gdf = gpd.read_file(io.StringIO(json.dumps(fc)))
+    # normalise the column names (ST_Read doesn't have this option)
+    gdf = gdf.rename(columns={col: col.lower().replace(" ", "_") for col in gdf.columns})
     crs_str = CRS_BNG if crs == "bng" else CRS_WGS84
     # The server returned these coordinates but GeoJSON doesn't embed CRS, so
     # we assign it explicitly (allow_override avoids an error if pyogrio guesses
@@ -282,12 +285,11 @@ def write_duckdb(
     """
     import tempfile  # noqa: PLC0415
 
-    import duckdb  # noqa: PLC0415
-
     epsg = 27700 if crs == "bng" else 4326
 
     print("  Building GeoDataFrame…", end=" ", flush=True)
     gdf = features_to_gdf(features, crs)
+    print(gdf)
     print("done")
 
     # Write to a temporary GeoPackage that DuckDB spatial can read via ST_Read
@@ -297,10 +299,11 @@ def write_duckdb(
     try:
         print("  Writing temporary GeoPackage…", end=" ", flush=True)
         gdf.to_file(tmp_path, driver="GPKG")
+        gdf.to_parquet("gdf.geoparquet")
         print("done")
 
         print(f"  Loading into DuckDB table '{table_name}'…", end=" ", flush=True)
-        con = duckdb.connect(str(db_path))
+        con = duckdb_spatial_connector(db_path, writeable=True)
         try:
             con.execute("INSTALL spatial; LOAD spatial;")
 
@@ -311,7 +314,7 @@ def write_duckdb(
                 ALTER TABLE {table_name} RENAME COLUMN {id_column} TO spatial_id;
             """)
 
-            row_count = con.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
+            row_count = con.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]  # ty:ignore[not-subscriptable]
             print("done")
             print(f"  Table '{table_name}': {row_count:,} rows  (EPSG:{epsg})")
 
@@ -350,6 +353,8 @@ def write_duckdb(
 
         finally:
             con.close()
+    except:
+        raise
 
     finally:
         tmp_path.unlink(missing_ok=True)

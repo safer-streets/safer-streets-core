@@ -94,7 +94,8 @@ def to_database(force_download: bool = False) -> None:
         print(f"Using cached {tmpfile}...")
 
     print("Creating table crime_data...")
-    con = duckdb_spatial_connector(data_dir() / os.environ["SAFER_STREETS_CRIME_DATABASE"])
+    con = duckdb_spatial_connector(data_dir() / os.environ["SAFER_STREETS_CRIME_DATABASE"], writeable=True)
+    con.execute("INSTALL zipfs FROM community;LOAD zipfs;")
 
     # limited support for **/ glob, but ????-?? is a reasonable workaround
     con.execute("""
