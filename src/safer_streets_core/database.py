@@ -10,7 +10,7 @@ from safer_streets_core.utils import data_dir
 
 def duckdb_spatial_connector(db: Path | None = None, *, writeable: bool = False) -> duckdb.DuckDBPyConnection:
     """For persistence provide a db file"""
-    con = duckdb.connect(database=db or ":memory:", read_only=db and not writeable)
+    con = duckdb.connect(database=db or ":memory:", read_only=db is not None and not writeable)
     try:
         con.execute("INSTALL spatial;LOAD spatial;")
         # H3 and zipfile extensions
