@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -8,13 +9,37 @@ import pandas as pd
 from safer_streets_core.utils import data_dir
 
 
-def duckdb_spatial_connector(db: Path | None = None, *, writeable: bool = False) -> duckdb.DuckDBPyConnection:
-    """For persistence provide a db file"""
-    con = duckdb.connect(database=db or ":memory:", read_only=db is not None and not writeable)
+def _load_extensions(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute("""
+    INSTALL spatial;LOAD spatial;
+    INSTALL vss;LOAD vss;
+    INSTALL h3 FROM community;LOAD h3;
+    """)
+
+
+def duckdb_connector(db: Path | None = None, *, writeable: bool = False) -> duckdb.DuckDBPyConnection:
+    """Connect to a local DuckDB file, or in-memory if db is None."""
+    con = duckdb.connect(
+        database=str(db) if db else ":memory:",
+        read_only=db is not None and not writeable,
+    )
+    try:
+        _load_extensions(con)
+        return con
+    except Exception:
+        con.close()
+        raise
+
+
+def motherduck_connector(db: str, *, writeable: bool = False) -> duckdb.DuckDBPyConnection:
+    """Connect to a MotherDuck database. Uses MOTHERDUCK_TOKEN_RW when writeable, else MOTHERDUCK_TOKEN."""
+    token_var = "MOTHERDUCK_TOKEN_RW" if writeable else "MOTHERDUCK_TOKEN"
+    token = os.environ.get(token_var)
+    if not token:
+        raise OSError(f"{token_var} not set")
+    con = duckdb.connect(database=f"md:{db}?motherduck_token={token}")
     try:
         con.execute("INSTALL spatial;LOAD spatial;")
-        # H3 and zipfile extensions
-        con.execute("INSTALL h3 FROM community;LOAD h3;")
         return con
     except Exception:
         con.close()

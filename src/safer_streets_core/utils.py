@@ -426,6 +426,7 @@ def get_monthly_crime_counts(crimes: pd.DataFrame, features: gpd.GeoDataFrame) -
     ).reindex(features.index, fill_value=0)
 
 
+# @deprecated("this does not use the database")  # why does this throw???
 def latest_month() -> Month:
     "Returns the most recent month found in the (extracted) archives"
     files = (data_dir() / "extracted").glob("*-street.parquet")
