@@ -22,8 +22,11 @@ DuckDB database. The pipeline:
 2. **ONS boundaries** — downloads the generalised boundary layers (PFA, LAD, MSOA, LSOA, OA)
    into one table each. Each layer is cached as a GeoPackage under the data directory and
    reused on later runs (pass `--force-download` to refresh).
-3. **H3 aggregations** — first repairs invalid geometries (`ST_MakeValid`) and builds an
-   RTree spatial index on the boundary tables (all `geom` tables except `crime_data`), then
+3. **Open greenspace** — loads OS Open Greenspace polygons into an `open_greenspace` table
+   from a shapefile under the data directory ([OS OpenGreenspace](https://osdatahub.os.uk/data/downloads/open/OpenGreenspace),
+   downloaded manually). Skipped with a warning if the shapefile is absent.
+4. **H3 aggregations** — first repairs invalid geometries (`ST_MakeValid`) and builds an
+   RTree spatial index on the geometry tables (all `geom` tables except `crime_data`), then
    builds, for each H3 resolution, `crime_counts_h3_{res}` (counts by cell / crime type /
    month), `h3_{res}_{key}_lookup` views (cell → ONS geography), and `h3_{res}_geogs` (one
    row per cell with every ONS code).

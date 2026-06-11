@@ -116,19 +116,23 @@ def index_geometry_tables(
     predicates like ST_Intersects; the RTree index then accelerates those joins.
     """
     tables = [
-        row[0]
+        (row[0], row[1])
         for row in con.execute(
             """
-            SELECT table_name FROM information_schema.columns
+            SELECT table_name, data_type FROM information_schema.columns
             WHERE column_name = 'geom' AND table_schema = 'main'
             ORDER BY table_name
             """
         ).fetchall()
         if row[0] not in exclude
     ]
-    for table in tables:
+    for table, geom_type in tables:
         # only rewrite rows that are actually invalid (NULL geoms are left as-is)
         con.execute(f'UPDATE "{table}" SET geom = ST_MakeValid(geom) WHERE geom IS NOT NULL AND NOT ST_IsValid(geom);')
+        # ST_Read yields a CRS-qualified type like GEOMETRY('EPSG:27700'); RTree needs a bare
+        # GEOMETRY. Stripping the type qualifier leaves the (BNG) coordinates unchanged.
+        if geom_type != "GEOMETRY":
+            con.execute(f'ALTER TABLE "{table}" ALTER COLUMN geom TYPE GEOMETRY;')
         con.execute(f'CREATE INDEX IF NOT EXISTS "{table}_geom_rtree" ON "{table}" USING RTREE (geom);')
 
 

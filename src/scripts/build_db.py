@@ -4,7 +4,8 @@ Build the production DuckDB database in one reproducible pass.
 Pipeline stages:
   1. extract.to_database   crime_data table (geometry, BNG)
   2. ons_boundaries.load_all   boundary tables (pfa, lad, msoa, lsoa, oa)
-  3. transforms.build_all   H3 count tables + geo lookup tables
+  3. open greenspace        OS Open Greenspace polygons (BNG)
+  4. transforms.build_all   H3 count tables + geo lookup tables
 
 The pipeline writes to a ``<name>.staging.db`` file and only promotes it to the live
 database with an atomic ``os.replace`` once every stage has succeeded. Read-only
@@ -18,14 +19,44 @@ pass --db-path to override.
 import os
 from pathlib import Path
 
+import duckdb
 import typer
 
 from safer_streets_core import transforms
 from safer_streets_core.database import duckdb_connector, index_geometry_tables
-from safer_streets_core.utils import database_path
+from safer_streets_core.utils import data_dir, database_path
 from scripts import extract, ons_boundaries
 
 app = typer.Typer(help="Build the production crime + boundaries + H3 DuckDB database.")
+
+# OS Open Greenspace (https://osdatahub.os.uk/data/downloads/open/OpenGreenspace): download the
+# "ESRI Shape File" GB bundle and unzip it under the data directory. Already in BNG (EPSG:27700).
+GREENSPACE_SHP = "OS Open Greenspace (ESRI Shape File) GB/data/GB_GreenspaceSite.shp"
+
+
+def load_greenspace(con: duckdb.DuckDBPyConnection, shapefile: str | Path = GREENSPACE_SHP) -> None:
+    """
+    Create the `open_greenspace` table from the OS Open Greenspace shapefile.
+
+    `shapefile` is resolved relative to the data directory unless it is an absolute path.
+    Raises FileNotFoundError if the shapefile is missing. ST_Read yields a `geom` column,
+    so index_geometry_tables repairs and RTree-indexes it with the boundary tables.
+    """
+    shp_path = Path(shapefile) if Path(shapefile).is_absolute() else data_dir() / shapefile
+    if not shp_path.exists():
+        raise FileNotFoundError(
+            f"OS Open Greenspace shapefile not found: {shp_path}\n"
+            "Download the 'ESRI Shape File' GB bundle from "
+            "https://osdatahub.os.uk/data/downloads/open/OpenGreenspace and unzip it under the data directory."
+        )
+
+    # ENCODING=ISO-8859-1 matches the OS Open Greenspace shapefile
+    con.execute(f"""
+        CREATE OR REPLACE TABLE open_greenspace AS
+        SELECT * FROM ST_Read('{shp_path}', open_options=['ENCODING=ISO-8859-1']);
+    """)
+    row_count = con.execute("SELECT COUNT(*) FROM open_greenspace").fetchone()[0]  # ty:ignore[not-subscriptable]
+    print(f"  open_greenspace: {row_count:,} rows")
 
 
 @app.command()
@@ -52,12 +83,19 @@ def build(
     print("[1/3] Extracting crime data…")
     extract.to_database(db_path=staging, force_download=force_download)
 
-    print("\n[2/3] Downloading ONS boundaries…")
+    print("\n[2/4] Downloading ONS boundaries…")
     ons_boundaries.load_all(db_path=staging, crs="bng", layers=layers, force_download=force_download)
 
-    print("\n[3/3] Validating geometries, indexing and building H3 aggregations…")
     con = duckdb_connector(staging, writeable=True)
     try:
+        print("\n[3/4] Loading open greenspace…")
+        try:
+            load_greenspace(con)
+        except FileNotFoundError as exc:
+            # greenspace is a manual OS download; warn but don't abort the whole build
+            print(f"  Skipping greenspace: {exc}")
+
+        print("\n[4/4] Validating geometries, indexing and building H3 aggregations…")
         # repair invalid geometries and add RTree indexes before the spatial joins below
         index_geometry_tables(con)
         transforms.build_all(con, resolutions=resolutions, replace=replace)
