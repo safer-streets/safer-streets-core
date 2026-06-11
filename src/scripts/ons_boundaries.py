@@ -285,17 +285,15 @@ def write_duckdb(
 
     print("  Building GeoDataFrame…", end=" ", flush=True)
     gdf = features_to_gdf(features, crs)
-    print(gdf)
     print("done")
 
-    # Write to a temporary GeoPackage that DuckDB spatial can read via ST_Read
-    with tempfile.NamedTemporaryFile(suffix=".gpkg", delete=False) as tmp:
+    # Write to a temporary GeoPackage (under data_dir()) that DuckDB spatial can read via ST_Read
+    with tempfile.NamedTemporaryFile(suffix=".gpkg", dir=data_dir(), delete=False) as tmp:
         tmp_path = Path(tmp.name)
 
     try:
         print("  Writing temporary GeoPackage…", end=" ", flush=True)
         gdf.to_file(tmp_path, driver="GPKG")
-        gdf.to_parquet("gdf.geoparquet")
         print("done")
 
         print(f"  Loading into DuckDB table '{table_name}'…", end=" ", flush=True)
