@@ -58,7 +58,7 @@ def build_crime_counts_h3(
             SELECT
                 lower(hex(h3_latlng_to_cell(latitude, longitude, {res}))) AS spatial_id,
                 crime_type,
-                month,
+                _month AS month,
                 COUNT(*) AS count
             FROM crime_data
             WHERE latitude IS NOT NULL AND longitude IS NOT NULL
