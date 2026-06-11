@@ -98,10 +98,19 @@ def get_gdf(
     return gpd.GeoDataFrame(df.drop(columns=wkt_col), geometry=gpd.GeoSeries.from_wkt(df[wkt_col]), crs=crs)
 
 
-def index_geometry_tables(con: duckdb.DuckDBPyConnection) -> None:
+# tables excluded from geometry indexing by default. crime_data holds millions of
+# point geometries that no spatial join queries, so an RTree there is pure overhead.
+_NO_GEOM_INDEX = frozenset({"crime_data"})
+
+
+def index_geometry_tables(
+    con: duckdb.DuckDBPyConnection,
+    exclude: frozenset[str] = _NO_GEOM_INDEX,
+) -> None:
     """
-    For every table with a 'geom' column, repair invalid geometries with ST_MakeValid
-    and create an RTree spatial index. Idempotent — safe to call repeatedly.
+    For every table with a 'geom' column (except those in `exclude`), repair invalid
+    geometries with ST_MakeValid and create an RTree spatial index. Idempotent — safe
+    to call repeatedly.
 
     Invalid polygons (e.g. self-intersecting boundaries) otherwise break spatial
     predicates like ST_Intersects; the RTree index then accelerates those joins.
@@ -115,6 +124,7 @@ def index_geometry_tables(con: duckdb.DuckDBPyConnection) -> None:
             ORDER BY table_name
             """
         ).fetchall()
+        if row[0] not in exclude
     ]
     for table in tables:
         # only rewrite rows that are actually invalid (NULL geoms are left as-is)

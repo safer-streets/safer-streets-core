@@ -238,6 +238,21 @@ class TestIndexGeometryTables:
         index_geometry_tables(con)  # second call must not raise (CREATE INDEX IF NOT EXISTS)
         con.close()
 
+    def test_crime_data_excluded_by_default(self):
+        try:
+            con = duckdb_connector(writeable=True)
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        con.execute("CREATE TABLE crime_data AS SELECT 1 AS id, ST_Point(0, 0) AS geom;")
+        con.execute("CREATE TABLE boundaries AS SELECT 1 AS id, ST_Point(0, 0) AS geom;")
+        index_geometry_tables(con)
+
+        indexes = {r[0] for r in con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
+        assert "boundaries_geom_rtree" in indexes
+        assert "crime_data_geom_rtree" not in indexes
+        con.close()
+
 
 class TestFixForceNames:
     def test_builds_expected_case_statement(self):
