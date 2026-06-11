@@ -260,60 +260,50 @@ def write_shapefile(
     print(f"  Done  ({total_size:.1f} MB across component files)")
 
 
-def write_duckdb(
-    features: list[dict],
+def write_geopackage(features: list[dict], gpkg_path: Path, crs: str) -> None:
+    """
+    Build a CRS-aware GeoDataFrame from features and write it to a GeoPackage.
+
+    The GeoPackage is kept under data_dir() as a cache: DuckDB loads boundaries from it
+    via ST_Read, and a subsequent run can reuse it instead of re-downloading from the API.
+    """
+    print("  Building GeoDataFrame…", end=" ", flush=True)
+    gdf = features_to_gdf(features, crs)
+    print("done")
+
+    # overwrite any existing cache (GPKG would otherwise append a second layer)
+    gpkg_path.unlink(missing_ok=True)
+    print(f"  Caching GeoPackage → {gpkg_path}")
+    gdf.to_file(gpkg_path, driver="GPKG")
+
+
+def load_geopackage_into_duckdb(
+    gpkg_path: Path,
     db_path: Path,
     table_name: str,
     id_column: str,
     crs: str,
 ) -> None:
     """
-    Load features into a DuckDB table using the spatial extension.
+    Load a boundary GeoPackage into a DuckDB table using the spatial extension.
 
-    Approach:
-      1. Build a GeoDataFrame (geopandas) to get clean, CRS-aware geometry.
-      2. Write to a temporary GeoPackage (.gpkg) on disk.
-      3. Use DuckDB's ST_Read() to load the GeoPackage directly  this is the
-         most reliable path for large feature sets and preserves geometry types.
-
-    All layers are written into the same .duckdb file as separate tables,
-    which makes cross-layer spatial joins very easy.
+    ST_Read is the most reliable path for large feature sets and preserves geometry types.
+    All layers are written into the same .duckdb file as separate tables, which makes
+    cross-layer spatial joins very easy.
     """
-    import tempfile  # noqa: PLC0415
-
     epsg = 27700 if crs == "bng" else 4326
 
-    print("  Building GeoDataFrame…", end=" ", flush=True)
-    gdf = features_to_gdf(features, crs)
+    print(f"  Loading into DuckDB table '{table_name}'…", end=" ", flush=True)
+    with duckdb_context(db_path, writeable=True) as con:
+        # ST_Read returns a geometry column named 'geom'
+        con.execute(f"""
+            CREATE OR REPLACE TABLE "{table_name}" AS
+            SELECT * FROM ST_Read('{gpkg_path}');
+            ALTER TABLE {table_name} RENAME COLUMN {id_column} TO spatial_id;
+        """)
+        row_count = con.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]  # ty:ignore[not-subscriptable]
     print("done")
-
-    # Write to a temporary GeoPackage (under data_dir()) that DuckDB spatial can read via ST_Read
-    with tempfile.NamedTemporaryFile(suffix=".gpkg", dir=data_dir(), delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        print("  Writing temporary GeoPackage…", end=" ", flush=True)
-        gdf.to_file(tmp_path, driver="GPKG")
-        print("done")
-
-        print(f"  Loading into DuckDB table '{table_name}'…", end=" ", flush=True)
-        with duckdb_context(db_path, writeable=True) as con:
-            # ST_Read returns a geometry column named 'geom'
-            con.execute(f"""
-                CREATE OR REPLACE TABLE "{table_name}" AS
-                SELECT * FROM ST_Read('{tmp_path}');
-                ALTER TABLE {table_name} RENAME COLUMN {id_column} TO spatial_id;
-            """)
-
-            row_count = con.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]  # ty:ignore[not-subscriptable]
-            print("done")
-            print(f"  Table '{table_name}': {row_count:,} rows  (EPSG:{epsg})")
-
-    except:
-        raise
-
-    finally:
-        tmp_path.unlink(missing_ok=True)
+    print(f"  Table '{table_name}': {row_count:,} rows  (EPSG:{epsg})")
 
     db_size = db_path.stat().st_size / 1_048_576
     print(f"  DuckDB file size so far: {db_size:.1f} MB")
@@ -331,15 +321,21 @@ def download_layer(
     crs: str,
     session: requests.Session,
     duckdb_path: Path | None = None,
+    *,
+    force_download: bool = False,
 ) -> Path:
     """
     Download all features for one layer and write to the requested format.
+
+    For the duckdb format the boundary data is cached as a GeoPackage under output_dir;
+    a subsequent run reuses it (unless force_download is set) rather than re-downloading.
 
     Returns the Path of the output file or directory.
     """
     info = sources()["layers"][layer_key]
     filename = info["filename"]
     table_name = info["table"]
+    suffix = "_bng" if crs == "bng" else ""
     crs_label = "EPSG:27700 BNG" if crs == "bng" else "EPSG:4326 WGS-84"
 
     print(f"\n{'=' * 60}")
@@ -348,17 +344,16 @@ def download_layer(
     print(f"CRS   : {crs_label}")
     print(f"URL   : {info['endpoint']}")
 
-    features, _ = fetch_all_features(layer_key, session, crs=crs)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if out_format == "geojson":
-        suffix = "_bng" if crs == "bng" else ""
+        features, _ = fetch_all_features(layer_key, session, crs=crs)
         out_path = output_dir / f"{filename}{suffix}.geojson"
         write_geojson(features, out_path, crs)
         return out_path
 
     elif out_format == "shapefile":
-        suffix = "_bng" if crs == "bng" else ""
+        features, _ = fetch_all_features(layer_key, session, crs=crs)
         stem = f"{filename}{suffix}"
         shp_dir = output_dir / stem
         write_shapefile(features, shp_dir, stem, crs)
@@ -366,7 +361,13 @@ def download_layer(
 
     elif out_format == "duckdb":
         assert duckdb_path, "duckdb_path must be set if out_format is duckdb"
-        write_duckdb(features, duckdb_path, table_name, info["id_field"], crs)
+        gpkg_cache = output_dir / f"{filename}{suffix}.gpkg"
+        if force_download or not gpkg_cache.exists():
+            features, _ = fetch_all_features(layer_key, session, crs=crs)
+            write_geopackage(features, gpkg_cache, crs)
+        else:
+            print(f"  Using cached {gpkg_cache}")
+        load_geopackage_into_duckdb(gpkg_cache, duckdb_path, table_name, info["id_field"], crs)
         return duckdb_path
 
     else:
@@ -393,6 +394,8 @@ def _download_layers(
     out_format: str,
     crs: str,
     duckdb_path: Path | None,
+    *,
+    force_download: bool = False,
 ) -> list[tuple[str, Path | None, str | None]]:
     """Download each requested layer, collecting (key, output_path, error) tuples."""
     session = requests.Session()
@@ -408,6 +411,7 @@ def _download_layers(
                 crs,
                 session,
                 duckdb_path=duckdb_path,
+                force_download=force_download,
             )
             results.append((key, out_path, None))
         except Exception as exc:  # noqa: BLE001
@@ -420,16 +424,20 @@ def load_all(
     db_path: Path,
     crs: str = "bng",
     layers: list[str] | None = None,
+    *,
+    force_download: bool = False,
 ) -> list[tuple[str, Path | None, str | None]]:
     """
     Download boundary layers into a single DuckDB database (one table per layer).
 
     Callable directly by the build pipeline so it can redirect output to a staging
-    database without spawning a subprocess. Returns the per-layer result tuples.
+    database without spawning a subprocess. Each layer is cached as a GeoPackage under
+    data_dir() and reused on later runs unless force_download is set. Returns the
+    per-layer result tuples.
     """
     available_layers = list(sources()["layers"].keys())
     requested = available_layers if not layers or "all" in layers else layers
-    return _download_layers(requested, "duckdb", crs, db_path)
+    return _download_layers(requested, "duckdb", crs, db_path, force_download=force_download)
 
 
 @app.callback(invoke_without_command=True)

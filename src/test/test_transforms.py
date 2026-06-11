@@ -15,6 +15,8 @@ def _make_db() -> duckdb.DuckDBPyConnection:
     except duckdb.HTTPException as e:  # extension download unavailable
         pytest.skip(f"extension download unavailable: {e}")
 
+    # the real crime_data table comes from read_csv(normalize_names=true); the police.uk
+    # "Month" column normalises to "_month" (month is a DuckDB keyword, so it is prefixed)
     con.execute("""
         CREATE TABLE crime_data AS
         SELECT * FROM (VALUES
@@ -23,7 +25,7 @@ def _make_db() -> duckdb.DuckDBPyConnection:
             (-1.548, 53.802, 'Robbery',  '2025-01'),
             (-1.550, 53.800, 'Drugs',    '2025-02'),
             (NULL,   NULL,    'Drugs',    '2025-02')
-        ) AS t(longitude, latitude, crime_type, month);
+        ) AS t(longitude, latitude, crime_type, _month);
     """)
     # one boundary per geography, each covering the crime locations (BNG geom)
     poly = "POLYGON((-1.6 53.75,-1.5 53.75,-1.5 53.85,-1.6 53.85,-1.6 53.75))"

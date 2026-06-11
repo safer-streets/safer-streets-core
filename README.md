@@ -20,7 +20,8 @@ DuckDB database. The pipeline:
 1. **Crime data** — downloads the latest police.uk bulk archive and loads it into a
    `crime_data` table (point geometry in British National Grid).
 2. **ONS boundaries** — downloads the generalised boundary layers (PFA, LAD, MSOA, LSOA, OA)
-   into one table each.
+   into one table each. Each layer is cached as a GeoPackage under the data directory and
+   reused on later runs (pass `--force-download` to refresh).
 3. **H3 aggregations** — builds, for each H3 resolution, `crime_counts_h3_{res}` (counts by
    cell / crime type / month), `h3_{res}_{key}_lookup` views (cell → ONS geography), and
    `h3_{res}_geogs` (one row per cell with every ONS code).

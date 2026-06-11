@@ -53,7 +53,7 @@ def build(
     extract.to_database(db_path=staging, force_download=force_download)
 
     print("\n[2/3] Downloading ONS boundaries…")
-    ons_boundaries.load_all(db_path=staging, crs="bng", layers=layers)
+    ons_boundaries.load_all(db_path=staging, crs="bng", layers=layers, force_download=force_download)
 
     print("\n[3/3] Building H3 aggregations…")
     con = duckdb_connector(staging, writeable=True)
