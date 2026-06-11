@@ -32,6 +32,8 @@ from scripts import extract, ons_boundaries
 
 app = typer.Typer(help="Build the production crime + boundaries + H3 DuckDB database.")
 
+# TODO merge these with the geodata_sources.json file
+
 # OS Open Greenspace, fetched from the OS Downloads API (open data, no API key needed).
 # The GB "ESRI Shapefile" bundle is a zip containing the GreenspaceSite (polygon) and
 # AccessPoint (point) layers; we load the polygons. Data is already in BNG (EPSG:27700).
@@ -41,10 +43,18 @@ GREENSPACE_URL = (
 GREENSPACE_ZIP = "opgrsp_essh_gb.zip"
 GREENSPACE_LAYER = "GB_GreenspaceSite.shp"
 
+# OS Open Roads
+ROADS_URL = "https://api.os.uk/downloads/v1/products/OpenRoads/downloads?area=GB&format=GeoPackage&redirect"
+ROADS_ZIP = "oproad_gpkg_gb.zip"
+ROADS_LAYER = "Data/oproad_gb.gpkg"
 
-def _download_greenspace(zip_path: Path) -> None:
-    print(f"  Downloading OS Open Greenspace → {zip_path}…")
-    response = requests.get(GREENSPACE_URL, stream=True, timeout=60)
+LAND_COVER_ZIP = "Download_land+cover+2024_2983803.zip"
+LAND_COVER_LAYER = "*.gpkg"  # there should only be one
+
+
+def _download(url: str, zip_path: Path) -> None:
+    print(f"  Downloading {zip_path}…")
+    response = requests.get(url, stream=True, timeout=60)
     response.raise_for_status()
     size = int(response.headers.get("content-length", 0))
     with open(zip_path, "wb") as fd, tqdm(total=size, unit="B", unit_scale=True) as bar:
@@ -64,7 +74,7 @@ def load_greenspace(con: duckdb.DuckDBPyConnection, *, force_download: bool = Fa
     """
     zip_path = data_dir() / GREENSPACE_ZIP
     if force_download or not zip_path.exists():
-        _download_greenspace(zip_path)
+        _download(GREENSPACE_URL, zip_path)
     else:
         print(f"  Using cached {zip_path}")
 
@@ -84,33 +94,65 @@ def load_greenspace(con: duckdb.DuckDBPyConnection, *, force_download: bool = Fa
 
 
 # UKCEH Land Cover Map vector GeoPackage. Licensed (EIDC, https://catalogue.ceh.ac.uk/) so it
-# cannot be auto-downloaded — download the LCM vector bundle and unzip it under the data dir.
-# The order-specific folder/file name is matched by glob. Data is already in BNG (EPSG:27700).
-LAND_COVER_GLOB = "lcm-*-vec_*/lcm-*-vec_*.gpkg"
-
-
-def load_land_cover(con: duckdb.DuckDBPyConnection, glob: str = LAND_COVER_GLOB) -> None:
+# cannot be auto-downloaded — download the LCM vector bundle geopackage. Data is already in BNG (EPSG:27700).
+def load_land_cover(con: duckdb.DuckDBPyConnection) -> None:
     """
     Create the `land_cover` table from the UKCEH Land Cover Map vector GeoPackage.
 
     The GeoPackage is located under the data directory by glob. ST_Read yields a `geom`
     column (with `gid` and `_mode`), so index_geometry_tables repairs and RTree-indexes it.
     """
-    matches = sorted(data_dir().glob(glob))
-    if not matches:
+
+    zip_path = data_dir() / LAND_COVER_ZIP
+    if not zip_path.exists():
         raise FileNotFoundError(
-            f"UKCEH Land Cover Map GeoPackage not found under {data_dir()} (glob {glob}).\n"
-            "Download the LCM vector bundle from the EIDC (https://catalogue.ceh.ac.uk/) and unzip it under the data directory."
+            f"UKCEH Land Cover Map GeoPackage not found under {data_dir() / LAND_COVER_ZIP}.\n"
+            "Download the LCM vector bundle geopackage from the EIDC (https://catalogue.ceh.ac.uk/) and unzip it "
+            "under the data directory."
         )
 
-    gpkg = matches[0]
-    print(f"  Loading land_cover from {gpkg}…")
+    with ZipFile(zip_path) as z:
+        members = [name for name in z.namelist() if name.endswith(".gpkg")]
+    if not members:
+        raise FileNotFoundError(f"No .gpkg found in {zip_path}")
+    gpkg = members[0]
+
+    print(f"  Loading land_cover from {zip_path}/{gpkg}…")
+    vsizip = f"/vsizip/{zip_path}/{members[0]}"
     con.execute(f"""
         CREATE OR REPLACE TABLE land_cover AS
-        SELECT * FROM ST_Read('{gpkg}');
+        SELECT * FROM ST_Read('{vsizip}');
     """)
     row_count = con.execute("SELECT COUNT(*) FROM land_cover").fetchone()[0]  # ty:ignore[not-subscriptable]
     print(f"  land_cover: {row_count:,} rows")
+
+
+def load_roads(con: duckdb.DuckDBPyConnection, *, force_download: bool = False) -> None:
+    """
+    Create the `open_roads` table from the OS Open Roads dataset.
+
+    The GB geopackage is downloaded from the OS Downloads API and cached under the
+    data directory (reused unless force_download).
+    """
+    zip_path = data_dir() / ROADS_ZIP
+    if force_download or not zip_path.exists():
+        _download(ROADS_URL, zip_path)
+    else:
+        print(f"  Using cached {zip_path}")
+
+    with ZipFile(zip_path) as z:
+        members = [name for name in z.namelist() if name.endswith(ROADS_LAYER)]
+    if not members:
+        raise FileNotFoundError(f"{ROADS_LAYER} not found in {zip_path}")
+
+    # ENCODING=ISO-8859-1 matches the OS Open Greenspace shapefile
+    vsizip = f"/vsizip/{zip_path}/{ROADS_LAYER}"
+    con.execute(f"""
+        CREATE OR REPLACE TABLE open_roads AS
+        SELECT * FROM ST_Read('{vsizip}', layer='road_link');
+    """)
+    row_count = con.execute("SELECT COUNT(*) FROM open_roads").fetchone()[0]  # ty:ignore[not-subscriptable]
+    print(f"  open_roads: {row_count:,} rows")
 
 
 @app.command()
@@ -142,7 +184,7 @@ def build(
 
     con = duckdb_connector(staging, writeable=True)
     try:
-        print("\n[3/4] Loading greenspace and land cover…")
+        print("\n[3/4] Loading greenspace, land cover, roads…")
         try:
             load_greenspace(con, force_download=force_download)
         except (requests.RequestException, FileNotFoundError) as exc:
@@ -152,10 +194,16 @@ def build(
             load_land_cover(con)
         except FileNotFoundError as exc:
             print(f"  Skipping land cover: {exc}")
+        try:
+            load_roads(con, force_download=force_download)
+        except (requests.RequestException, FileNotFoundError) as exc:
+            # supplementary datasets; warn but don't abort the whole build
+            print(f"  Skipping roads: {exc}")
 
         print("\n[4/4] Validating geometries, indexing and building H3 aggregations…")
         # repair invalid geometries and add RTree indexes before the spatial joins below
         index_geometry_tables(con)
+        # TODO road intersection. land cover needs some aggregation...
         transforms.build_all(con, resolutions=resolutions, replace=replace)
     finally:
         con.close()
