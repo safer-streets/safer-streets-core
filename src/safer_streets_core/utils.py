@@ -112,6 +112,18 @@ def data_dir() -> Path:
     return Path(os.environ["SAFER_STREETS_DATA_DIR"])
 
 
+@cache
+def database_path() -> Path:
+    """
+    Path to the DuckDB database.
+
+    The filename is read from the SAFER_STREETS_DATABASE environment variable (via .env);
+    it is resolved relative to the data directory.
+    """
+    load_dotenv()
+    return data_dir() / os.environ["SAFER_STREETS_DATABASE"]
+
+
 def format_boundary_as_param(polygon: Polygon) -> str:
     xy = zip(*(c.tolist() for c in polygon.exterior.coords.xy), strict=False)
     return ":".join(f"{x:.3f},{y:.3f}" for x, y in xy)

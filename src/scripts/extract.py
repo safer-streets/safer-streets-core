@@ -1,4 +1,3 @@
-import os
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated
@@ -10,7 +9,7 @@ import typer
 from tqdm import tqdm
 
 from safer_streets_core.database import duckdb_context
-from safer_streets_core.utils import data_dir, latest_month  # ty:ignore[deprecated]
+from safer_streets_core.utils import data_dir, database_path, latest_month  # ty:ignore[deprecated]
 
 # This script extracts street-level crime data from zipped CSV files and saves them as Parquet files.
 # or creates a duckdb table
@@ -76,7 +75,10 @@ def latest(*, keep_existing: bool = False) -> None:
 
 
 @app.command()
-def to_database(force_download: bool = False) -> None:
+def to_database(db_path: Path | None = None, force_download: bool = False) -> None:
+    # db_path defaults to the database named in SAFER_STREETS_DATABASE (.env); the orchestrator
+    # passes an explicit staging path so output can be redirected without mutating the environment.
+    db_path = db_path or database_path()
 
     tmpfile = Path("/tmp/latest.zip")
     if force_download or not tmpfile.exists():
@@ -93,9 +95,9 @@ def to_database(force_download: bool = False) -> None:
     else:
         print(f"Using cached {tmpfile}...")
 
-    print("Creating table crime_data...")
+    print(f"Creating table crime_data in {db_path}...")
 
-    with duckdb_context(data_dir() / os.environ["SAFER_STREETS_CRIME_DATABASE"], writeable=True) as con:
+    with duckdb_context(db_path, writeable=True) as con:
         con.execute("INSTALL zipfs FROM community;LOAD zipfs;")
 
         # limited support for **/ glob, but ????-?? is a reasonable workaround

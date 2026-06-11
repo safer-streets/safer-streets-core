@@ -30,32 +30,31 @@ Requirements (install what you need):
 
 Usage examples:
     # Download everything as GeoJSON (WGS-84)
-    python ons-boundaries.py
+    python ons_boundaries.py
 
     # Specific layers only
-    python ons-boundaries.py --layers pfa lad
+    python ons_boundaries.py --layers pfa lad
 
     # Shapefile in British National Grid
-    python ons-boundaries.py --format shapefile --crs bng
+    python ons_boundaries.py --format shapefile --crs bng
 
     # DuckDB database (WGS-84)  all layers in one file
-    python ons-boundaries.py --format duckdb
+    python ons_boundaries.py --format duckdb
 
     # DuckDB database in BNG, custom path
-    python ons-boundaries.py --format duckdb --crs bng --duckdb-path ~/data/boundaries.duckdb
+    python ons_boundaries.py --format duckdb --crs bng --duckdb-path ~/data/boundaries.duckdb
 
     # Custom output directory
-    python ons-boundaries.py --output ./boundaries
+    python ons_boundaries.py --output ./boundaries
 
     # List available layers
-    python ons-boundaries.py --list
+    python ons_boundaries.py --list
 """
 
 # TODO merge this script with extract...
 
 import io
 import json
-import os
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -66,7 +65,7 @@ import requests
 import typer
 
 from safer_streets_core.database import duckdb_context
-from safer_streets_core.utils import data_dir
+from safer_streets_core.utils import data_dir, database_path
 
 # ---------------------------------------------------------------------------
 # Layer catalogue
@@ -391,6 +390,50 @@ def list_layers() -> None:
     print()
 
 
+def _download_layers(
+    requested: list[str],
+    out_format: str,
+    crs: str,
+    duckdb_path: Path | None,
+) -> list[tuple[str, Path | None, str | None]]:
+    """Download each requested layer, collecting (key, output_path, error) tuples."""
+    session = requests.Session()
+    session.headers.update({"User-Agent": "ONS-Boundary-Downloader/1.0"})
+
+    results: list[tuple[str, Path | None, str | None]] = []
+    for key in requested:
+        try:
+            out_path = download_layer(
+                key,
+                data_dir(),
+                out_format,
+                crs,
+                session,
+                duckdb_path=duckdb_path,
+            )
+            results.append((key, out_path, None))
+        except Exception as exc:  # noqa: BLE001
+            print(f"\n  ERROR downloading {key}: {exc}")
+            results.append((key, None, str(exc)))
+    return results
+
+
+def load_all(
+    db_path: Path,
+    crs: str = "bng",
+    layers: list[str] | None = None,
+) -> list[tuple[str, Path | None, str | None]]:
+    """
+    Download boundary layers into a single DuckDB database (one table per layer).
+
+    Callable directly by the build pipeline so it can redirect output to a staging
+    database without spawning a subprocess. Returns the per-layer result tuples.
+    """
+    available_layers = list(sources()["layers"].keys())
+    requested = available_layers if not layers or "all" in layers else layers
+    return _download_layers(requested, "duckdb", crs, db_path)
+
+
 @app.callback(invoke_without_command=True)
 def main(
     layers: list[str] = typer.Option(  # noqa: B008
@@ -443,7 +486,8 @@ def main(
     available_layers = list(sources()["layers"].keys())
     requested = available_layers if "all" in layers else layers
 
-    resolved_duckdb_path = duckdb_path or data_dir() / os.environ["SAFER_STREETS_CRIME_DATABASE"]
+    # the database filename is read from .env (SAFER_STREETS_DATABASE)
+    resolved_duckdb_path = duckdb_path or database_path()
     crs_label = "EPSG:27700 BNG" if crs == "bng" else "EPSG:4326 WGS-84"
 
     print("\nONS Boundary Downloader")
@@ -454,25 +498,7 @@ def main(
     if out_format == "duckdb":
         print(f"DuckDB  : {resolved_duckdb_path.resolve()}")
 
-    session = requests.Session()
-    session.headers.update({"User-Agent": "ONS-Boundary-Downloader/1.0"})
-
-    results: list[tuple[str, Path | None, str | None]] = []
-
-    for key in requested:
-        try:
-            out_path = download_layer(
-                key,
-                data_dir(),
-                out_format,
-                crs,
-                session,
-                duckdb_path=resolved_duckdb_path,
-            )
-            results.append((key, out_path, None))
-        except Exception as exc:  # noqa: BLE001
-            print(f"\n  ERROR downloading {key}: {exc}")
-            results.append((key, None, str(exc)))
+    results = _download_layers(requested, out_format, crs, resolved_duckdb_path)
 
     # ---- summary -------------------------------------------------------
     print(f"\n{'=' * 60}")
