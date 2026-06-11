@@ -18,9 +18,12 @@ pass --db-path to override.
 
 import os
 from pathlib import Path
+from zipfile import ZipFile
 
 import duckdb
+import requests
 import typer
+from tqdm import tqdm
 
 from safer_streets_core import transforms
 from safer_streets_core.database import duckdb_connector, index_geometry_tables
@@ -29,31 +32,52 @@ from scripts import extract, ons_boundaries
 
 app = typer.Typer(help="Build the production crime + boundaries + H3 DuckDB database.")
 
-# OS Open Greenspace (https://osdatahub.os.uk/data/downloads/open/OpenGreenspace): download the
-# "ESRI Shape File" GB bundle and unzip it under the data directory. Already in BNG (EPSG:27700).
-GREENSPACE_SHP = "OS Open Greenspace (ESRI Shape File) GB/data/GB_GreenspaceSite.shp"
+# OS Open Greenspace, fetched from the OS Downloads API (open data, no API key needed).
+# The GB "ESRI Shapefile" bundle is a zip containing the GreenspaceSite (polygon) and
+# AccessPoint (point) layers; we load the polygons. Data is already in BNG (EPSG:27700).
+GREENSPACE_URL = (
+    "https://api.os.uk/downloads/v1/products/OpenGreenspace/downloads?area=GB&format=ESRI%C2%AE+Shapefile&redirect"
+)
+GREENSPACE_ZIP = "opgrsp_essh_gb.zip"
+GREENSPACE_LAYER = "GB_GreenspaceSite.shp"
 
 
-def load_greenspace(con: duckdb.DuckDBPyConnection, shapefile: str | Path = GREENSPACE_SHP) -> None:
+def _download_greenspace(zip_path: Path) -> None:
+    print(f"  Downloading OS Open Greenspace → {zip_path}…")
+    response = requests.get(GREENSPACE_URL, stream=True, timeout=60)
+    response.raise_for_status()
+    size = int(response.headers.get("content-length", 0))
+    with open(zip_path, "wb") as fd, tqdm(total=size, unit="B", unit_scale=True) as bar:
+        for chunk in response.iter_content(1024**2):
+            bar.update(len(chunk))
+            fd.write(chunk)
+
+
+def load_greenspace(con: duckdb.DuckDBPyConnection, *, force_download: bool = False) -> None:
     """
-    Create the `open_greenspace` table from the OS Open Greenspace shapefile.
+    Create the `open_greenspace` table from the OS Open Greenspace polygons.
 
-    `shapefile` is resolved relative to the data directory unless it is an absolute path.
-    Raises FileNotFoundError if the shapefile is missing. ST_Read yields a `geom` column,
-    so index_geometry_tables repairs and RTree-indexes it with the boundary tables.
+    The GB shapefile bundle is downloaded from the OS Downloads API and cached under the
+    data directory (reused unless force_download). The polygon layer is read straight from
+    the zip via GDAL's /vsizip. ST_Read yields a `geom` column, so index_geometry_tables
+    repairs and RTree-indexes it with the boundary tables.
     """
-    shp_path = Path(shapefile) if Path(shapefile).is_absolute() else data_dir() / shapefile
-    if not shp_path.exists():
-        raise FileNotFoundError(
-            f"OS Open Greenspace shapefile not found: {shp_path}\n"
-            "Download the 'ESRI Shape File' GB bundle from "
-            "https://osdatahub.os.uk/data/downloads/open/OpenGreenspace and unzip it under the data directory."
-        )
+    zip_path = data_dir() / GREENSPACE_ZIP
+    if force_download or not zip_path.exists():
+        _download_greenspace(zip_path)
+    else:
+        print(f"  Using cached {zip_path}")
+
+    with ZipFile(zip_path) as z:
+        members = [name for name in z.namelist() if name.endswith(GREENSPACE_LAYER)]
+    if not members:
+        raise FileNotFoundError(f"{GREENSPACE_LAYER} not found in {zip_path}")
 
     # ENCODING=ISO-8859-1 matches the OS Open Greenspace shapefile
+    vsizip = f"/vsizip/{zip_path}/{members[0]}"
     con.execute(f"""
         CREATE OR REPLACE TABLE open_greenspace AS
-        SELECT * FROM ST_Read('{shp_path}', open_options=['ENCODING=ISO-8859-1']);
+        SELECT * FROM ST_Read('{vsizip}', open_options=['ENCODING=ISO-8859-1']);
     """)
     row_count = con.execute("SELECT COUNT(*) FROM open_greenspace").fetchone()[0]  # ty:ignore[not-subscriptable]
     print(f"  open_greenspace: {row_count:,} rows")
@@ -80,7 +104,7 @@ def build(
 
     print(f"\n=== Building {db_path} (staging: {staging}) ===\n")
 
-    print("[1/3] Extracting crime data…")
+    print("[1/4] Extracting crime data…")
     extract.to_database(db_path=staging, force_download=force_download)
 
     print("\n[2/4] Downloading ONS boundaries…")
@@ -90,9 +114,9 @@ def build(
     try:
         print("\n[3/4] Loading open greenspace…")
         try:
-            load_greenspace(con)
-        except FileNotFoundError as exc:
-            # greenspace is a manual OS download; warn but don't abort the whole build
+            load_greenspace(con, force_download=force_download)
+        except (requests.RequestException, FileNotFoundError) as exc:
+            # greenspace is a supplementary dataset; warn but don't abort the whole build
             print(f"  Skipping greenspace: {exc}")
 
         print("\n[4/4] Validating geometries, indexing and building H3 aggregations…")
