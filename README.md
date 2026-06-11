@@ -53,6 +53,11 @@ build-db --force-download
 
 # Limit H3 resolutions or boundary layers
 build-db --resolutions 9 --layers lad --layers lsoa
+
+# Resume an interrupted build: reuse the existing staging database and keep
+# H3 tables/views that already exist (CREATE ... IF NOT EXISTS) instead of
+# rebuilding them (CREATE OR REPLACE, the default)
+build-db --no-replace
 ```
 
 ## Content Overview

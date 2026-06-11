@@ -34,11 +34,18 @@ def build(
     resolutions: list[int] = [8, 9, 10],  # noqa: B006
     layers: list[str] = ["all"],  # noqa: B006
     force_download: bool = False,
+    replace: bool = True,
 ) -> None:
-    """Run the full pipeline into a staging file, then atomically swap it into place."""
+    """Run the full pipeline into a staging file, then atomically swap it into place.
+
+    With --replace (default) the staging database is rebuilt from scratch. With
+    --no-replace an existing staging database is reused and H3 tables/views that are
+    already present are kept (CREATE ... IF NOT EXISTS), letting an interrupted build resume.
+    """
     db_path = db_path or database_path()
     staging = db_path.with_suffix(".staging.db")
-    staging.unlink(missing_ok=True)
+    if replace:
+        staging.unlink(missing_ok=True)
 
     print(f"\n=== Building {db_path} (staging: {staging}) ===\n")
 
@@ -51,7 +58,7 @@ def build(
     print("\n[3/3] Building H3 aggregations…")
     con = duckdb_connector(staging, writeable=True)
     try:
-        transforms.build_all(con, resolutions=resolutions)
+        transforms.build_all(con, resolutions=resolutions, replace=replace)
     finally:
         con.close()
 

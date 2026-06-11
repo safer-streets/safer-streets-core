@@ -81,3 +81,23 @@ class TestBuildH3Geogs:
 
         # every cell resolves to the (single) boundary code we created
         assert con.execute("SELECT COUNT(*) FROM h3_9_geogs WHERE lad24 = 'E08000035'").fetchone()[0] > 0
+
+
+class TestReplaceFlag:
+    def test_replace_true_rebuilds_table(self):
+        con = _make_db()
+        transforms.build_crime_counts_h3(con, resolutions=[9])
+        con.execute("DELETE FROM crime_data")  # so a rebuild would empty the table
+
+        transforms.build_crime_counts_h3(con, resolutions=[9], replace=True)
+        assert con.execute("SELECT COUNT(*) FROM crime_counts_h3_9").fetchone()[0] == 0
+
+    def test_replace_false_keeps_existing_table(self):
+        con = _make_db()
+        transforms.build_crime_counts_h3(con, resolutions=[9])
+        before = con.execute("SELECT COUNT(*) FROM crime_counts_h3_9").fetchone()[0]
+        con.execute("DELETE FROM crime_data")  # a rebuild would change the result
+
+        # IF NOT EXISTS: the existing table is left untouched
+        transforms.build_crime_counts_h3(con, resolutions=[9], replace=False)
+        assert con.execute("SELECT COUNT(*) FROM crime_counts_h3_9").fetchone()[0] == before

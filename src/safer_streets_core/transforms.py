@@ -33,9 +33,20 @@ GEOGRAPHY_MAPPINGS = {
 _BASE_KEY = "lad24"
 
 
+def _create(kind: str, name: str, *, replace: bool) -> str:
+    """Build the leading CREATE clause for a table or view.
+
+    replace=True  -> ``CREATE OR REPLACE {kind} {name}``    (always rebuilt)
+    replace=False -> ``CREATE {kind} IF NOT EXISTS {name}`` (kept if it already exists)
+    """
+    return f"CREATE OR REPLACE {kind} {name}" if replace else f"CREATE {kind} IF NOT EXISTS {name}"
+
+
 def build_crime_counts_h3(
     con: duckdb.DuckDBPyConnection,
     resolutions: list[int] = H3_RESOLUTIONS,
+    *,
+    replace: bool = True,
 ) -> None:
     """Create ``crime_counts_h3_{res}`` counting crimes per H3 cell / crime type / month.
 
@@ -43,7 +54,7 @@ def build_crime_counts_h3(
     """
     for res in resolutions:
         con.execute(f"""
-            CREATE OR REPLACE TABLE crime_counts_h3_{res} AS
+            {_create("TABLE", f"crime_counts_h3_{res}", replace=replace)} AS
             SELECT
                 lower(hex(h3_latlng_to_cell(latitude, longitude, {res}))) AS spatial_id,
                 crime_type,
@@ -59,6 +70,8 @@ def build_h3_geo_lookups(
     con: duckdb.DuckDBPyConnection,
     resolutions: list[int] = H3_RESOLUTIONS,
     mappings: dict[str, str] = GEOGRAPHY_MAPPINGS,
+    *,
+    replace: bool = True,
 ) -> None:
     """Create ``h3_{res}_{key}_lookup`` views mapping each H3 cell to one ONS geography code.
 
@@ -69,7 +82,7 @@ def build_h3_geo_lookups(
     for res in resolutions:
         for key, table in mappings.items():
             con.execute(f"""
-                CREATE OR REPLACE VIEW h3_{res}_{key}_lookup AS
+                {_create("VIEW", f"h3_{res}_{key}_lookup", replace=replace)} AS
                 SELECT c.spatial_id, b.spatial_id AS {key}
                 FROM (
                     SELECT DISTINCT
@@ -92,6 +105,8 @@ def build_h3_geogs(
     con: duckdb.DuckDBPyConnection,
     resolutions: list[int] = H3_RESOLUTIONS,
     mappings: dict[str, str] = GEOGRAPHY_MAPPINGS,
+    *,
+    replace: bool = True,
 ) -> None:
     """Create ``h3_{res}_geogs`` with one row per H3 cell carrying every ONS code.
 
@@ -105,7 +120,7 @@ def build_h3_geogs(
         select_cols = ", ".join([f"base.{base}", *(f"{key}.{key}" for key in others)])
         joins = "\n".join(f"LEFT JOIN h3_{res}_{key}_lookup {key} USING (spatial_id)" for key in others)
         con.execute(f"""
-            CREATE OR REPLACE TABLE h3_{res}_geogs AS
+            {_create("TABLE", f"h3_{res}_geogs", replace=replace)} AS
             SELECT base.spatial_id, {select_cols}
             FROM h3_{res}_{base}_lookup base
             {joins};
@@ -116,8 +131,14 @@ def build_all(
     con: duckdb.DuckDBPyConnection,
     resolutions: list[int] = H3_RESOLUTIONS,
     mappings: dict[str, str] = GEOGRAPHY_MAPPINGS,
+    *,
+    replace: bool = True,
 ) -> None:
-    """Run all three H3 transforms in dependency order."""
-    build_crime_counts_h3(con, resolutions=resolutions)
-    build_h3_geo_lookups(con, resolutions=resolutions, mappings=mappings)
-    build_h3_geogs(con, resolutions=resolutions, mappings=mappings)
+    """Run all three H3 transforms in dependency order.
+
+    When ``replace`` is False, tables/views that already exist are left untouched
+    (``CREATE ... IF NOT EXISTS``) rather than rebuilt (``CREATE OR REPLACE``).
+    """
+    build_crime_counts_h3(con, resolutions=resolutions, replace=replace)
+    build_h3_geo_lookups(con, resolutions=resolutions, mappings=mappings, replace=replace)
+    build_h3_geogs(con, resolutions=resolutions, mappings=mappings, replace=replace)
