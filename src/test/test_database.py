@@ -214,12 +214,12 @@ class TestIndexGeometryTables:
         # a table without a geom column should be ignored
         con.execute("CREATE TABLE other AS SELECT 1 AS x;")
 
-        assert con.execute("SELECT COUNT(*) FROM boundaries WHERE NOT ST_IsValid(geom)").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM boundaries WHERE NOT ST_IsValid(geom)").fetchone()[0] == 1  # ty:ignore[not-subscriptable]
 
         index_geometry_tables(con)
 
         assert (
-            con.execute("SELECT COUNT(*) FROM boundaries WHERE geom IS NOT NULL AND NOT ST_IsValid(geom)").fetchone()[0]
+            con.execute("SELECT COUNT(*) FROM boundaries WHERE geom IS NOT NULL AND NOT ST_IsValid(geom)").fetchone()[0]  # ty:ignore[not-subscriptable]
             == 0
         )
         indexes = {r[0] for r in con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}

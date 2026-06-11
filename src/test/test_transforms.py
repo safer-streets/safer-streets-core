@@ -49,11 +49,11 @@ class TestBuildCrimeCountsH3:
         con = _make_db()
         transforms.build_crime_counts_h3(con, resolutions=[9])
 
-        rows = con.execute("SELECT COUNT(*) FROM crime_counts_h3_9").fetchone()[0]
+        rows = con.execute("SELECT COUNT(*) FROM crime_counts_h3_9").fetchone()[0]  # ty:ignore[not-subscriptable]
         assert rows > 0
 
         # the row with NULL coordinates is dropped, leaving 4 crimes
-        total = con.execute("SELECT SUM(count) FROM crime_counts_h3_9").fetchone()[0]
+        total = con.execute("SELECT SUM(count) FROM crime_counts_h3_9").fetchone()[0]  # ty:ignore[not-subscriptable]
         assert total == 4
 
     def test_spatial_ids_are_valid_h3_strings(self):
@@ -66,7 +66,7 @@ class TestBuildCrimeCountsH3:
             assert len(cell) == H3_RES9_STR_LEN
             assert cell == cell.lower()
             # round-trips through the h3 extension as a valid cell
-            valid = con.execute("SELECT h3_is_valid_cell(?)", [cell]).fetchone()[0]
+            valid = con.execute("SELECT h3_is_valid_cell(?)", [cell]).fetchone()[0]  # ty:ignore[not-subscriptable]
             assert valid
 
 
@@ -82,7 +82,7 @@ class TestBuildH3Geogs:
         assert dupes == []
 
         # every cell resolves to the (single) boundary code we created
-        assert con.execute("SELECT COUNT(*) FROM h3_9_geogs WHERE lad24 = 'E08000035'").fetchone()[0] > 0
+        assert con.execute("SELECT COUNT(*) FROM h3_9_geogs WHERE lad24 = 'E08000035'").fetchone()[0] > 0  # ty:ignore[not-subscriptable]
 
 
 class TestReplaceFlag:
@@ -92,14 +92,14 @@ class TestReplaceFlag:
         con.execute("DELETE FROM crime_data")  # so a rebuild would empty the table
 
         transforms.build_crime_counts_h3(con, resolutions=[9], replace=True)
-        assert con.execute("SELECT COUNT(*) FROM crime_counts_h3_9").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM crime_counts_h3_9").fetchone()[0] == 0  # ty:ignore[not-subscriptable]
 
     def test_replace_false_keeps_existing_table(self):
         con = _make_db()
         transforms.build_crime_counts_h3(con, resolutions=[9])
-        before = con.execute("SELECT COUNT(*) FROM crime_counts_h3_9").fetchone()[0]
+        before = con.execute("SELECT COUNT(*) FROM crime_counts_h3_9").fetchone()[0]  # ty:ignore[not-subscriptable]
         con.execute("DELETE FROM crime_data")  # a rebuild would change the result
 
         # IF NOT EXISTS: the existing table is left untouched
         transforms.build_crime_counts_h3(con, resolutions=[9], replace=False)
-        assert con.execute("SELECT COUNT(*) FROM crime_counts_h3_9").fetchone()[0] == before
+        assert con.execute("SELECT COUNT(*) FROM crime_counts_h3_9").fetchone()[0] == before  # ty:ignore[not-subscriptable]
