@@ -29,8 +29,9 @@ DuckDB database. The pipeline:
 4. **H3 aggregations** — first repairs invalid geometries (`ST_MakeValid`) and builds an
    RTree spatial index on the geometry tables (all `geom` tables except `crime_data`), then
    builds, for each H3 resolution, `crime_counts_h3_{res}` (counts by cell / crime type /
-   month), `h3_{res}_{key}_lookup` views (cell → ONS geography), and `h3_{res}_geogs` (one
-   row per cell with every ONS code).
+   month), `h3_{res}_{key}_lookup` views (cell → ONS geography), `h3_{res}_greenspace_lookup`
+   views (cell → each overlapping greenspace polygon, when greenspace is present), and
+   `h3_{res}_geogs` (one row per cell with every ONS code plus a `greenspace_ids` list).
 
 To avoid serving a half-built database, the pipeline writes everything to a
 `<name>.staging.db` file and only promotes it with an atomic swap once every stage has

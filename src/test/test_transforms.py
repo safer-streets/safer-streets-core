@@ -72,7 +72,7 @@ class TestBuildCrimeCountsH3:
 
 class TestBuildH3Geogs:
     def test_geogs_have_all_codes_and_no_duplicates(self):
-        con = _make_db()
+        con = _make_db()  # no open_greenspace table → no greenspace_ids column
         transforms.build_all(con, resolutions=[9])
 
         cols = [d[0] for d in con.execute("SELECT * FROM h3_9_geogs LIMIT 0").description]
@@ -83,6 +83,37 @@ class TestBuildH3Geogs:
 
         # every cell resolves to the (single) boundary code we created
         assert con.execute("SELECT COUNT(*) FROM h3_9_geogs WHERE lad24 = 'E08000035'").fetchone()[0] > 0  # ty:ignore[not-subscriptable]
+
+
+class TestGreenspaceLookup:
+    def test_greenspace_ids_folded_into_geogs(self):
+        con = _make_db()
+        # a greenspace polygon covering the crime locations (BNG), mirroring open_greenspace
+        poly = "POLYGON((-1.6 53.75,-1.5 53.75,-1.5 53.85,-1.6 53.85,-1.6 53.75))"
+        con.execute(f"""
+            CREATE TABLE open_greenspace AS
+            SELECT 'GS1' AS id, 'Public Park Or Garden' AS function,
+                   ST_Transform(ST_GeomFromText('{poly}'), 'EPSG:4326', 'EPSG:27700', always_xy := true) AS geom;
+        """)
+        transforms.build_all(con, resolutions=[9])
+
+        # the lookup view keeps one row per (cell, overlapping greenspace)
+        assert con.execute("SELECT COUNT(*) FROM h3_9_greenspace_lookup").fetchone()[0] > 0  # ty:ignore[not-subscriptable]
+
+        cols = [d[0] for d in con.execute("SELECT * FROM h3_9_geogs LIMIT 0").description]
+        assert "greenspace_ids" in cols
+
+        # every cell overlaps the single park, so greenspace_ids lists it; still one row per cell
+        ids = con.execute("SELECT DISTINCT greenspace_ids FROM h3_9_geogs").fetchall()
+        assert ids == [(["GS1"],)]
+        dupes = con.execute("SELECT spatial_id, COUNT(*) c FROM h3_9_geogs GROUP BY spatial_id HAVING c > 1").fetchall()
+        assert dupes == []
+
+    def test_greenspace_skipped_when_table_absent(self):
+        con = _make_db()  # no open_greenspace
+        transforms.build_all(con, resolutions=[9])
+        views = {r[0] for r in con.execute("SELECT view_name FROM duckdb_views() WHERE schema_name='main'").fetchall()}
+        assert "h3_9_greenspace_lookup" not in views
 
 
 class TestReplaceFlag:
