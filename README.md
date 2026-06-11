@@ -12,6 +12,49 @@ Using data (mainly) from:
 
 See [the project page](https://github.com/safer-streets)
 
+## Building the database
+
+`build-db` runs the full data pipeline in one reproducible pass, producing a single
+DuckDB database. The pipeline:
+
+1. **Crime data** — downloads the latest police.uk bulk archive and loads it into a
+   `crime_data` table (point geometry in British National Grid).
+2. **ONS boundaries** — downloads the generalised boundary layers (PFA, LAD, MSOA, LSOA, OA)
+   into one table each.
+3. **H3 aggregations** — builds, for each H3 resolution, `crime_counts_h3_{res}` (counts by
+   cell / crime type / month), `h3_{res}_{key}_lookup` views (cell → ONS geography), and
+   `h3_{res}_geogs` (one row per cell with every ONS code).
+
+To avoid serving a half-built database, the pipeline writes everything to a
+`<name>.staging.db` file and only promotes it with an atomic swap once every stage has
+succeeded. Read-only consumers therefore always see a complete database — either the
+previous one or the new one, never a partial state. A monthly full rebuild is intentional:
+it keeps the logic simple and reliable (no incremental/merge state to maintain).
+
+### Configuration
+
+Two environment variables are read from a `.env` file (resolved relative to where the
+command is run):
+
+- `SAFER_STREETS_DATA_DIR` — directory for downloaded/output data
+- `SAFER_STREETS_DATABASE` — the database filename (resolved inside the data directory)
+
+### Running
+
+```sh
+# Build the live database named in SAFER_STREETS_DATABASE
+build-db
+
+# Override the output location
+build-db --db-path /path/to/safer_streets.db
+
+# Force a fresh download of the crime archive (otherwise a cached copy is reused)
+build-db --force-download
+
+# Limit H3 resolutions or boundary layers
+build-db --resolutions 9 --layers lad --layers lsoa
+```
+
 ## Content Overview
 
 ### General
