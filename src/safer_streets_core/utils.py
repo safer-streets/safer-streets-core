@@ -117,11 +117,9 @@ def database_path() -> Path:
     """
     Path to the DuckDB database.
 
-    The filename is read from the SAFER_STREETS_DATABASE environment variable (via .env);
-    it is resolved relative to the data directory.
+    The filename hard-coded, the path can be modified via the SAFER_STREETS_DATA_DIR env var
     """
-    load_dotenv()
-    return data_dir() / os.environ["SAFER_STREETS_DATABASE"]
+    return data_dir() / "safer_streets.db"
 
 
 def format_boundary_as_param(polygon: Polygon) -> str:

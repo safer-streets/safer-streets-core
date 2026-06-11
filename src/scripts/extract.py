@@ -76,8 +76,8 @@ def latest(*, keep_existing: bool = False) -> None:
 
 @app.command()
 def to_database(db_path: Path | None = None, force_download: bool = False) -> None:
-    # db_path defaults to the database named in SAFER_STREETS_DATABASE (.env); the orchestrator
-    # passes an explicit staging path so output can be redirected without mutating the environment.
+    # db_path defaults to the standard database (database_path()); the orchestrator passes an
+    # explicit staging path so output can be redirected without touching the live database.
     db_path = db_path or database_path()
 
     # cache the bulk archive under data_dir() so it can be reused across runs

@@ -34,11 +34,11 @@ it keeps the logic simple and reliable (no incremental/merge state to maintain).
 
 ### Configuration
 
-Two environment variables are read from a `.env` file (resolved relative to where the
-command is run):
+The data directory is read from a `.env` file (resolved relative to where the command is run):
 
 - `SAFER_STREETS_DATA_DIR` — directory for downloaded/output data
-- `SAFER_STREETS_DATABASE` — the database filename (resolved inside the data directory)
+
+The database is written there as `safer_streets.db`. Pass `--db-path` to write elsewhere.
 
 ### Running
 

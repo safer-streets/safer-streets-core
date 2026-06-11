@@ -11,8 +11,8 @@ database with an atomic ``os.replace`` once every stage has succeeded. Read-only
 consumers therefore always see a complete database  either the old one or the new
 one, never a half-built file.
 
-The live database filename is read from the SAFER_STREETS_DATABASE environment
-variable (.env); pass --db-path to override.
+The live database is the standard database (database_path(), under SAFER_STREETS_DATA_DIR);
+pass --db-path to override.
 """
 
 import os

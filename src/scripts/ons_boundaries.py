@@ -492,7 +492,7 @@ def main(
     available_layers = list(sources()["layers"].keys())
     requested = available_layers if "all" in layers else layers
 
-    # the database filename is read from .env (SAFER_STREETS_DATABASE)
+    # default to the standard database (database_path())
     resolved_duckdb_path = duckdb_path or database_path()
     crs_label = "EPSG:27700 BNG" if crs == "bng" else "EPSG:4326 WGS-84"
 
