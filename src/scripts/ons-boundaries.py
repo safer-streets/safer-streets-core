@@ -66,7 +66,7 @@ import geopandas as gpd
 import requests
 import typer
 
-from safer_streets_core.database import duckdb_spatial_connector
+from safer_streets_core.database import duckdb_context
 from safer_streets_core.utils import data_dir
 
 # ---------------------------------------------------------------------------
@@ -303,10 +303,7 @@ def write_duckdb(
         print("done")
 
         print(f"  Loading into DuckDB table '{table_name}'…", end=" ", flush=True)
-        con = duckdb_spatial_connector(db_path, writeable=True)
-        try:
-            con.execute("INSTALL spatial; LOAD spatial;")
-
+        with duckdb_context(db_path, writeable=True) as con:
             # ST_Read returns a geometry column named 'geom'
             con.execute(f"""
                 CREATE OR REPLACE TABLE "{table_name}" AS
@@ -351,8 +348,6 @@ def write_duckdb(
                     [table_name, geom_col, epsg, crs_wkt],
                 )
 
-        finally:
-            con.close()
     except:
         raise
 

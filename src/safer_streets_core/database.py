@@ -1,10 +1,11 @@
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from zipfile import ZipFile
 
 import duckdb
 import geopandas as gpd
-import pandas as pd
 
 from safer_streets_core.utils import data_dir
 
@@ -19,16 +20,27 @@ def _load_extensions(con: duckdb.DuckDBPyConnection) -> None:
 
 def duckdb_connector(db: Path | None = None, *, writeable: bool = False) -> duckdb.DuckDBPyConnection:
     """Connect to a local DuckDB file, or in-memory if db is None."""
-    con = duckdb.connect(
-        database=str(db) if db else ":memory:",
-        read_only=db is not None and not writeable,
-    )
+    con = duckdb.connect(database=str(db) if db else ":memory:", read_only=db is not None and not writeable)
     try:
         _load_extensions(con)
         return con
     except Exception:
         con.close()
         raise
+
+
+@contextmanager
+def duckdb_context(db: Path | None = None, *, writeable: bool = False) -> Iterator[duckdb.DuckDBPyConnection]:
+    """
+    Context managed DB connection.
+    Limited usefulness for in-memory databases as DB will exist only within the context
+    """
+    con = duckdb.connect(database=str(db) if db else ":memory:", read_only=db is not None and not writeable)
+    try:
+        _load_extensions(con)
+        yield con
+    finally:
+        con.close()
 
 
 def motherduck_connector(db: str, *, writeable: bool = False) -> duckdb.DuckDBPyConnection:
@@ -74,25 +86,16 @@ def add_table_from_shapefile(
     )
 
 
-# # this is of little use for emphemeral (in-memory parquet)
-# @contextmanager
-# def duckdb_spatial_connector(dbname: str, *, read_only: bool = True) -> Iterator[duckdb.DuckDBPyConnection]:
-#     con = duckdb.connect(database=dbname, read_only=read_only)
-#     try:
-#         con.execute("INSTALL spatial;")
-#         con.execute("LOAD spatial;")
-#         yield con
-#     finally:
-#         con.close()
-
-
-def to_gdf(df: pd.DataFrame, wkt_col: str) -> gpd.GeoDataFrame:
-    """Coverts a pandas df output from duckdb with wkt format geometry. Assumes BNG CRS"""
-    return gpd.GeoDataFrame(
-        df.drop(columns=wkt_col),
-        geometry=gpd.GeoSeries.from_wkt(df[wkt_col]),
-        crs="EPSG:27700",
-    )
+def get_gdf(
+    con: duckdb.DuckDBPyConnection, query: str, *, wkt_col: str = "wkt", crs="EPSG:27700", **kwargs
+) -> gpd.GeoDataFrame:
+    """
+    Runs a query returning a dataframe and converts to GeoDataFrame
+    SQL should generate a geometry column matching wkt_col
+    By default assumes BNG CRS
+    """
+    df = con.sql(query, **kwargs).df()
+    return gpd.GeoDataFrame(df.drop(columns=wkt_col), geometry=gpd.GeoSeries.from_wkt(df[wkt_col]), crs=crs)
 
 
 def fix_force_names(con, table: str, column: str) -> None:

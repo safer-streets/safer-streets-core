@@ -9,8 +9,8 @@ import requests
 import typer
 from tqdm import tqdm
 
-from safer_streets_core.database import duckdb_spatial_connector
-from safer_streets_core.utils import data_dir, latest_month
+from safer_streets_core.database import duckdb_context
+from safer_streets_core.utils import data_dir, latest_month  # ty:ignore[deprecated]
 
 # This script extracts street-level crime data from zipped CSV files and saves them as Parquet files.
 # or creates a duckdb table
@@ -94,29 +94,30 @@ def to_database(force_download: bool = False) -> None:
         print(f"Using cached {tmpfile}...")
 
     print("Creating table crime_data...")
-    con = duckdb_spatial_connector(data_dir() / os.environ["SAFER_STREETS_CRIME_DATABASE"], writeable=True)
-    con.execute("INSTALL zipfs FROM community;LOAD zipfs;")
 
-    # limited support for **/ glob, but ????-?? is a reasonable workaround
-    con.execute("""
-    DROP TABLE IF EXISTS crime_data;
-    CREATE TABLE crime_data AS
-    SELECT * FROM read_csv('zip:///tmp/latest.zip/????-??/*-street.csv', normalize_names = true);
-    ALTER TABLE crime_data ADD COLUMN geom GEOMETRY;
-    UPDATE crime_data
-    SET geom = ST_Transform(
-            ST_Point(longitude, latitude),
-            'EPSG:4326',
-            'EPSG:27700',
-            always_xy := true
-        )
-    -- WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
-    """)
+    with duckdb_context(data_dir() / os.environ["SAFER_STREETS_CRIME_DATABASE"], writeable=True) as con:
+        con.execute("INSTALL zipfs FROM community;LOAD zipfs;")
+
+        # limited support for **/ glob, but ????-?? is a reasonable workaround
+        con.execute("""
+        DROP TABLE IF EXISTS crime_data;
+        CREATE TABLE crime_data AS
+        SELECT * FROM read_csv('zip:///tmp/latest.zip/????-??/*-street.csv', normalize_names = true);
+        ALTER TABLE crime_data ADD COLUMN geom GEOMETRY;
+        UPDATE crime_data
+        SET geom = ST_Transform(
+                ST_Point(longitude, latitude),
+                'EPSG:4326',
+                'EPSG:27700',
+                always_xy := true
+            )
+        -- WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
+        """)
 
 
 @app.command()
 def summary(years: Annotated[int, typer.Option(min=1)] = 4) -> None:
-    year_itr = range(latest_month().year, latest_month().year - years, -1)
+    year_itr = range(latest_month().year, latest_month().year - years, -1)  # ty:ignore[deprecated]
     results = []
     for year in year_itr:
         data = []

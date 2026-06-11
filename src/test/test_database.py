@@ -8,31 +8,22 @@ import pytest
 
 from safer_streets_core.database import (
     add_table_from_shapefile,
-    duckdb_spatial_connector,
-    to_gdf,
+    duckdb_connector,
+    duckdb_context,
+    get_gdf,
 )
 
 
 class TestEphemeralDuckdbSpatialConnector:
     def test_returns_duckdb_connection(self):
-        con = duckdb_spatial_connector()
+        con = duckdb_connector()
         assert isinstance(con, duckdb.DuckDBPyConnection)
         con.close()
 
     def test_spatial_extension_loaded(self):
-        con = duckdb_spatial_connector()
-        result = con.execute("SELECT COUNT(*) FROM duckdb_functions() WHERE function_name='st_read';").fetchall()
-        assert len(result) > 0
-        con.close()
-
-    # def test_exception_closes_connection(self):
-    #     with patch("duckdb.connect") as mock_connect:
-    #         mock_con = MagicMock()
-    #         mock_con.execute.side_effect = Exception("Test error")
-    #         mock_connect.return_value = mock_con
-
-    #         _ = ephemeral_duckdb_spatial_connector()
-    #         mock_con.close.assert_called_once()
+        with duckdb_context() as con:
+            result = con.execute("SELECT COUNT(*) FROM duckdb_functions() WHERE function_name='st_read';").fetchall()
+            assert len(result) > 0
 
 
 class TestAddTableFromShapefile:
@@ -100,21 +91,22 @@ class TestToGdf:
             {
                 "col1": [1, 2],
                 "col2": ["a", "b"],
-                "wkt_geom": [
+                "wkt": [
                     "POINT (500000 200000)",
                     "POINT (500001 200001)",
                 ],
             }
         )
+        with duckdb_context() as con:
+            con.register("data", df)
+            gdf = get_gdf(con, "SELECT * FROM data")
 
-        gdf = to_gdf(df, "wkt_geom")
-
-        assert isinstance(gdf, gpd.GeoDataFrame)
-        assert gdf.crs == "EPSG:27700"
-        assert len(gdf) == 2
-        assert "wkt_geom" not in gdf.columns
-        assert "col1" in gdf.columns
-        assert "col2" in gdf.columns
+            assert isinstance(gdf, gpd.GeoDataFrame)
+            assert gdf.crs == "EPSG:27700"
+            assert len(gdf) == 2
+            assert "wkt_geom" not in gdf.columns
+            assert "col1" in gdf.columns
+            assert "col2" in gdf.columns
 
     def test_geometry_correctly_parsed(self):
         df = pd.DataFrame(
@@ -124,7 +116,9 @@ class TestToGdf:
             }
         )
 
-        gdf = to_gdf(df, "wkt_geom")
+        with duckdb_context() as con:
+            con.register("data", df)
+            gdf = get_gdf(con, "SELECT * FROM data", wkt_col="wkt_geom")
 
-        assert gdf.geometry[0].x == 500000
-        assert gdf.geometry[0].y == 200000
+            assert gdf.geometry[0].x == 500000
+            assert gdf.geometry[0].y == 200000
