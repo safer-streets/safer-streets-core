@@ -6,10 +6,13 @@ import pytest
 from shapely.geometry import Point, Polygon
 
 from safer_streets_core.spatial import (
+    _INTERLEAVE,
+    _STRIDE,
     _add_centroids,
     get_demographics,
     get_hex_grid,
     get_square_grid,
+    hex_neighbours,
     load_population_data,
     normalised_clumpiness,
     snap_to_street_segment,
@@ -134,3 +137,24 @@ class TestGetDemographics:
         result = get_demographics(population, features)
         assert isinstance(result, pd.DataFrame)
         assert "count" in result.columns
+
+
+class TestHexNeighbours:
+    def test_returns_six_neighbours(self):
+        unit = _INTERLEAVE - 100  # below the interleave threshold
+        neighbours = hex_neighbours(unit)
+        assert len(neighbours) == 6
+
+    def test_below_interleave_uses_positive_sign(self):
+        unit = _INTERLEAVE - 100
+        neighbours = hex_neighbours(unit)
+        assert neighbours[:2] == [unit - 1, unit + 1]
+        assert unit + _INTERLEAVE in neighbours
+        assert unit + (_STRIDE + _INTERLEAVE + 1) in neighbours
+
+    def test_above_interleave_uses_negative_sign(self):
+        unit = _INTERLEAVE + 100  # above the threshold
+        neighbours = hex_neighbours(unit)
+        assert neighbours[:2] == [unit - 1, unit + 1]
+        assert unit - _INTERLEAVE in neighbours
+        assert unit - (_STRIDE + _INTERLEAVE + 1) in neighbours

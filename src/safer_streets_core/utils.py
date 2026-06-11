@@ -139,8 +139,16 @@ def get_geog_lookup(geog_from: str, geogs_to: list[str]) -> pd.DataFrame:
 
 POLICE_API_BASE_URL = "http://data.police.uk/api"
 POLICE_DATA_BASE_URL = "http://data.police.uk/data"
-ARCHIVE_TEMPLATE = f"{data_dir()}/police_uk_crime_data_{{}}.zip"
-DATA_TEMPLATE = f"{data_dir()}/extracted/{{month}}-{{force}}-street.parquet"
+
+
+def archive_path(name: str = "latest") -> Path:
+    """Path to a downloaded police.uk bulk crime data archive."""
+    return data_dir() / f"police_uk_crime_data_{name}.zip"
+
+
+def extracted_data_path(month: "Month | str", force: str) -> Path:
+    """Path to an extracted per-month, per-force street-level parquet file."""
+    return data_dir() / "extracted" / f"{month}-{force}-street.parquet"
 
 
 class Month:
@@ -264,7 +272,7 @@ def extract_crime_data(
     Extracts crime data for a given force from the latest archive.
     Use keep_lonlat for rendering  streamlit maps
     """
-    archive = Path(ARCHIVE_TEMPLATE.format("latest"))
+    archive = archive_path("latest")
 
     if not archive.exists():
         download_archive("latest")
@@ -361,7 +369,7 @@ def download_archive(name: str = "latest") -> bool:
     url = f"{POLICE_DATA_BASE_URL}/archive/{name}.zip"
     MB = 1024 * 1024
 
-    local_file = Path(ARCHIVE_TEMPLATE.format(name))
+    local_file = archive_path(name)
     try:
         response = requests.get(url, stream=True)
         response.raise_for_status()
@@ -396,7 +404,7 @@ def load_crime_data(
     data = []
     force_identifier = tokenize_force_name(force)
     for month in months:
-        path = Path(DATA_TEMPLATE.format(month=month, force=force_identifier))
+        path = extracted_data_path(month, force_identifier)
         if path.is_file():
             data.append(pd.read_parquet(path))
         else:

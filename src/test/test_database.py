@@ -10,20 +10,91 @@ from safer_streets_core.database import (
     add_table_from_shapefile,
     duckdb_connector,
     duckdb_context,
+    fix_force_names,
     get_gdf,
+    motherduck_connector,
 )
 
 
-class TestEphemeralDuckdbSpatialConnector:
-    def test_returns_duckdb_connection(self):
+class TestDuckdbConnector:
+    @patch("safer_streets_core.database._load_extensions")
+    def test_in_memory_by_default(self, mock_load):
         con = duckdb_connector()
         assert isinstance(con, duckdb.DuckDBPyConnection)
+        mock_load.assert_called_once_with(con)
         con.close()
 
+    @patch("safer_streets_core.database._load_extensions")
+    @patch("safer_streets_core.database.duckdb.connect")
+    def test_file_db_is_read_only_by_default(self, mock_connect, mock_load):
+        mock_connect.return_value = MagicMock()
+        db = Path("/tmp/some.db")
+        duckdb_connector(db)
+        mock_connect.assert_called_once_with(database=str(db), read_only=True)
+
+    @patch("safer_streets_core.database._load_extensions")
+    @patch("safer_streets_core.database.duckdb.connect")
+    def test_file_db_writeable(self, mock_connect, mock_load):
+        mock_connect.return_value = MagicMock()
+        db = Path("/tmp/some.db")
+        duckdb_connector(db, writeable=True)
+        mock_connect.assert_called_once_with(database=str(db), read_only=False)
+
+    @patch("safer_streets_core.database._load_extensions")
+    @patch("safer_streets_core.database.duckdb.connect")
+    def test_exception_closes_connection(self, mock_connect, mock_load):
+        mock_con = MagicMock()
+        mock_connect.return_value = mock_con
+        mock_load.side_effect = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError):
+            duckdb_connector()
+        mock_con.close.assert_called_once()
+
     def test_spatial_extension_loaded(self):
+        """Integration test: requires network to install the spatial extension."""
+        try:
+            with duckdb_context() as con:
+                # duckdb stores the function name as 'ST_Read', so match case-insensitively
+                result = con.execute(
+                    "SELECT COUNT(*) FROM duckdb_functions() WHERE function_name ILIKE 'st_read';"
+                ).fetchall()
+                assert result[0][0] > 0
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+
+class TestDuckdbContext:
+    @patch("safer_streets_core.database._load_extensions")
+    def test_yields_connection_and_closes(self, mock_load):
         with duckdb_context() as con:
-            result = con.execute("SELECT COUNT(*) FROM duckdb_functions() WHERE function_name='st_read';").fetchall()
-            assert len(result) > 0
+            assert isinstance(con, duckdb.DuckDBPyConnection)
+            mock_load.assert_called_once_with(con)
+        # the connection is closed on context exit
+        with pytest.raises(duckdb.ConnectionException):
+            con.execute("SELECT 1")
+
+    @patch("safer_streets_core.database._load_extensions")
+    @patch("safer_streets_core.database.duckdb.connect")
+    def test_closes_on_exception(self, mock_connect, mock_load):
+        mock_con = MagicMock()
+        mock_connect.return_value = mock_con
+
+        with pytest.raises(RuntimeError), duckdb_context():
+            raise RuntimeError("boom")
+        mock_con.close.assert_called_once()
+
+
+class TestMotherduckConnector:
+    def test_raises_when_token_missing(self, monkeypatch):
+        monkeypatch.delenv("MOTHERDUCK_TOKEN", raising=False)
+        with pytest.raises(OSError, match="MOTHERDUCK_TOKEN not set"):
+            motherduck_connector("mydb")
+
+    def test_raises_when_rw_token_missing(self, monkeypatch):
+        monkeypatch.delenv("MOTHERDUCK_TOKEN_RW", raising=False)
+        with pytest.raises(OSError, match="MOTHERDUCK_TOKEN_RW not set"):
+            motherduck_connector("mydb", writeable=True)
 
 
 class TestAddTableFromShapefile:
@@ -122,3 +193,16 @@ class TestToGdf:
 
             assert gdf.geometry[0].x == 500000
             assert gdf.geometry[0].y == 200000
+
+
+class TestFixForceNames:
+    def test_builds_expected_case_statement(self):
+        mock_con = MagicMock()
+        fix_force_names(mock_con, "crimes", "force")
+
+        sql = mock_con.execute.call_args[0][0]
+        assert "UPDATE crimes" in sql
+        assert "'Metropolitan Police' THEN 'Metropolitan'" in sql
+        assert "'Devon &amp; Cornwall' THEN 'Devon and Cornwall'" in sql
+        assert "'London, City of' THEN 'City of London'" in sql
+        assert "'Dyfed-Powys' THEN 'Dyfed Powys'" in sql
