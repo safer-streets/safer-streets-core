@@ -22,7 +22,6 @@ CRS options:
   bng    EPSG:27700 British National Grid
           Coordinates are requested from the server in BNG directly, so no
           client-side reprojection is needed.  For DuckDB output the geometry
-          column SRID is recorded in a geometry_metadata table.
 
 Requirements (install what you need):
     pip install requests
@@ -78,7 +77,7 @@ from safer_streets_core.utils import data_dir
 
 @lru_cache
 def sources(filename: Path | None = None) -> dict[str, Any]:
-    filename = filename or data_dir() / "geodata_sources.json"
+    filename = filename or Path("./config/geodata_sources.json")
     with filename.open() as fd:
         return json.load(fd)
 
@@ -277,8 +276,6 @@ def write_duckdb(
       2. Write to a temporary GeoPackage (.gpkg) on disk.
       3. Use DuckDB's ST_Read() to load the GeoPackage directly  this is the
          most reliable path for large feature sets and preserves geometry types.
-      4. Record SRID metadata in a geometry_metadata helper table so that
-         downstream tools can discover the CRS without parsing WKT.
 
     All layers are written into the same .duckdb file as separate tables,
     which makes cross-layer spatial joins very easy.
@@ -314,39 +311,6 @@ def write_duckdb(
             row_count = con.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]  # ty:ignore[not-subscriptable]
             print("done")
             print(f"  Table '{table_name}': {row_count:,} rows  (EPSG:{epsg})")
-
-            # ---- geometry_metadata catalogue ----------------------------
-            # DuckDB spatial doesn't maintain a PostGIS-style geometry_columns
-            # view, so we create a lightweight metadata table manually.
-            con.execute("""
-                CREATE TABLE IF NOT EXISTS geometry_metadata (
-                    table_name  VARCHAR NOT NULL,
-                    column_name VARCHAR NOT NULL,
-                    srid        INTEGER NOT NULL,
-                    crs_wkt     VARCHAR,
-                    PRIMARY KEY (table_name, column_name)
-                )
-            """)
-
-            # Find the GEOMETRY column name (ST_Read uses 'geom' by default)
-            geom_cols = con.execute(f"""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = '{table_name}'
-                  AND data_type = 'GEOMETRY'
-            """).fetchall()
-
-            if geom_cols:
-                geom_col = geom_cols[0][0]
-                crs_wkt = gdf.crs.to_wkt() if gdf.crs else ""
-                con.execute(
-                    """
-                    INSERT OR REPLACE INTO geometry_metadata
-                        (table_name, column_name, srid, crs_wkt)
-                    VALUES (?, ?, ?, ?)
-                """,
-                    [table_name, geom_col, epsg, crs_wkt],
-                )
 
     except:
         raise
@@ -543,9 +507,6 @@ def main(
             print("            lad.geom")
             print("        )")
             print("    ''').show()")
-            print()
-            print("    # geometry_metadata  check CRS for each table:")
-            print("    con.sql('SELECT * FROM geometry_metadata').show()")
             print()
 
 
