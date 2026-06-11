@@ -21,7 +21,7 @@ from pathlib import Path
 import typer
 
 from safer_streets_core import transforms
-from safer_streets_core.database import duckdb_connector
+from safer_streets_core.database import duckdb_connector, index_geometry_tables
 from safer_streets_core.utils import database_path
 from scripts import extract, ons_boundaries
 
@@ -55,9 +55,11 @@ def build(
     print("\n[2/3] Downloading ONS boundaries…")
     ons_boundaries.load_all(db_path=staging, crs="bng", layers=layers, force_download=force_download)
 
-    print("\n[3/3] Building H3 aggregations…")
+    print("\n[3/3] Validating geometries, indexing and building H3 aggregations…")
     con = duckdb_connector(staging, writeable=True)
     try:
+        # repair invalid geometries and add RTree indexes before the spatial joins below
+        index_geometry_tables(con)
         transforms.build_all(con, resolutions=resolutions, replace=replace)
     finally:
         con.close()

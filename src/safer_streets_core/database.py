@@ -98,6 +98,30 @@ def get_gdf(
     return gpd.GeoDataFrame(df.drop(columns=wkt_col), geometry=gpd.GeoSeries.from_wkt(df[wkt_col]), crs=crs)
 
 
+def index_geometry_tables(con: duckdb.DuckDBPyConnection) -> None:
+    """
+    For every table with a 'geom' column, repair invalid geometries with ST_MakeValid
+    and create an RTree spatial index. Idempotent — safe to call repeatedly.
+
+    Invalid polygons (e.g. self-intersecting boundaries) otherwise break spatial
+    predicates like ST_Intersects; the RTree index then accelerates those joins.
+    """
+    tables = [
+        row[0]
+        for row in con.execute(
+            """
+            SELECT table_name FROM information_schema.columns
+            WHERE column_name = 'geom' AND table_schema = 'main'
+            ORDER BY table_name
+            """
+        ).fetchall()
+    ]
+    for table in tables:
+        # only rewrite rows that are actually invalid (NULL geoms are left as-is)
+        con.execute(f'UPDATE "{table}" SET geom = ST_MakeValid(geom) WHERE geom IS NOT NULL AND NOT ST_IsValid(geom);')
+        con.execute(f'CREATE INDEX IF NOT EXISTS "{table}_geom_rtree" ON "{table}" USING RTREE (geom);')
+
+
 def fix_force_names(con, table: str, column: str) -> None:
     con.execute(f"""
     UPDATE {table}

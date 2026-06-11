@@ -12,6 +12,7 @@ from safer_streets_core.database import (
     duckdb_context,
     fix_force_names,
     get_gdf,
+    index_geometry_tables,
     motherduck_connector,
 )
 
@@ -193,6 +194,49 @@ class TestToGdf:
 
             assert gdf.geometry[0].x == 500000
             assert gdf.geometry[0].y == 200000
+
+
+class TestIndexGeometryTables:
+    def test_repairs_invalid_and_creates_rtree_index(self):
+        try:
+            con = duckdb_connector(writeable=True)
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        # a self-intersecting ("bowtie") polygon is invalid; plus a valid one and a NULL
+        con.execute("""
+            CREATE TABLE boundaries AS SELECT * FROM (VALUES
+                (1, ST_GeomFromText('POLYGON((0 0,2 0,2 2,0 2,0 0))')),
+                (2, ST_GeomFromText('POLYGON((0 0,2 2,2 0,0 2,0 0))')),
+                (3, CAST(NULL AS GEOMETRY))
+            ) AS v(id, geom);
+        """)
+        # a table without a geom column should be ignored
+        con.execute("CREATE TABLE other AS SELECT 1 AS x;")
+
+        assert con.execute("SELECT COUNT(*) FROM boundaries WHERE NOT ST_IsValid(geom)").fetchone()[0] == 1
+
+        index_geometry_tables(con)
+
+        assert (
+            con.execute("SELECT COUNT(*) FROM boundaries WHERE geom IS NOT NULL AND NOT ST_IsValid(geom)").fetchone()[0]
+            == 0
+        )
+        indexes = {r[0] for r in con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
+        assert "boundaries_geom_rtree" in indexes
+        assert "other_geom_rtree" not in indexes
+        con.close()
+
+    def test_idempotent(self):
+        try:
+            con = duckdb_connector(writeable=True)
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        con.execute("CREATE TABLE boundaries AS SELECT 1 AS id, ST_Point(0, 0) AS geom;")
+        index_geometry_tables(con)
+        index_geometry_tables(con)  # second call must not raise (CREATE INDEX IF NOT EXISTS)
+        con.close()
 
 
 class TestFixForceNames:

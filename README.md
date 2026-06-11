@@ -22,9 +22,11 @@ DuckDB database. The pipeline:
 2. **ONS boundaries** — downloads the generalised boundary layers (PFA, LAD, MSOA, LSOA, OA)
    into one table each. Each layer is cached as a GeoPackage under the data directory and
    reused on later runs (pass `--force-download` to refresh).
-3. **H3 aggregations** — builds, for each H3 resolution, `crime_counts_h3_{res}` (counts by
-   cell / crime type / month), `h3_{res}_{key}_lookup` views (cell → ONS geography), and
-   `h3_{res}_geogs` (one row per cell with every ONS code).
+3. **H3 aggregations** — first repairs invalid geometries (`ST_MakeValid`) and builds an
+   RTree spatial index on every table with a `geom` column, then builds, for each H3
+   resolution, `crime_counts_h3_{res}` (counts by cell / crime type / month),
+   `h3_{res}_{key}_lookup` views (cell → ONS geography), and `h3_{res}_geogs` (one row per
+   cell with every ONS code).
 
 To avoid serving a half-built database, the pipeline writes everything to a
 `<name>.staging.db` file and only promotes it with an atomic swap once every stage has
