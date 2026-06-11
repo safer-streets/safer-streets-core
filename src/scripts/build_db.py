@@ -4,8 +4,8 @@ Build the production DuckDB database in one reproducible pass.
 Pipeline stages:
   1. extract.to_database   crime_data table (geometry, BNG)
   2. ons_boundaries.load_all   boundary tables (pfa, lad, msoa, lsoa, oa)
-  3. open greenspace        OS Open Greenspace polygons (BNG)
-  4. transforms.build_all   H3 count tables + geo lookup tables
+  3. open greenspace + land cover   OS Open Greenspace + UKCEH Land Cover polygons (BNG)
+  4. transforms.build_all   H3 count tables + geo/overlap lookup tables
 
 The pipeline writes to a ``<name>.staging.db`` file and only promotes it to the live
 database with an atomic ``os.replace`` once every stage has succeeded. Read-only
@@ -83,6 +83,36 @@ def load_greenspace(con: duckdb.DuckDBPyConnection, *, force_download: bool = Fa
     print(f"  open_greenspace: {row_count:,} rows")
 
 
+# UKCEH Land Cover Map vector GeoPackage. Licensed (EIDC, https://catalogue.ceh.ac.uk/) so it
+# cannot be auto-downloaded — download the LCM vector bundle and unzip it under the data dir.
+# The order-specific folder/file name is matched by glob. Data is already in BNG (EPSG:27700).
+LAND_COVER_GLOB = "lcm-*-vec_*/lcm-*-vec_*.gpkg"
+
+
+def load_land_cover(con: duckdb.DuckDBPyConnection, glob: str = LAND_COVER_GLOB) -> None:
+    """
+    Create the `land_cover` table from the UKCEH Land Cover Map vector GeoPackage.
+
+    The GeoPackage is located under the data directory by glob. ST_Read yields a `geom`
+    column (with `gid` and `_mode`), so index_geometry_tables repairs and RTree-indexes it.
+    """
+    matches = sorted(data_dir().glob(glob))
+    if not matches:
+        raise FileNotFoundError(
+            f"UKCEH Land Cover Map GeoPackage not found under {data_dir()} (glob {glob}).\n"
+            "Download the LCM vector bundle from the EIDC (https://catalogue.ceh.ac.uk/) and unzip it under the data directory."
+        )
+
+    gpkg = matches[0]
+    print(f"  Loading land_cover from {gpkg}…")
+    con.execute(f"""
+        CREATE OR REPLACE TABLE land_cover AS
+        SELECT * FROM ST_Read('{gpkg}');
+    """)
+    row_count = con.execute("SELECT COUNT(*) FROM land_cover").fetchone()[0]  # ty:ignore[not-subscriptable]
+    print(f"  land_cover: {row_count:,} rows")
+
+
 @app.command()
 def build(
     db_path: Path | None = None,
@@ -112,12 +142,16 @@ def build(
 
     con = duckdb_connector(staging, writeable=True)
     try:
-        print("\n[3/4] Loading open greenspace…")
+        print("\n[3/4] Loading greenspace and land cover…")
         try:
             load_greenspace(con, force_download=force_download)
         except (requests.RequestException, FileNotFoundError) as exc:
-            # greenspace is a supplementary dataset; warn but don't abort the whole build
+            # supplementary datasets; warn but don't abort the whole build
             print(f"  Skipping greenspace: {exc}")
+        try:
+            load_land_cover(con)
+        except FileNotFoundError as exc:
+            print(f"  Skipping land cover: {exc}")
 
         print("\n[4/4] Validating geometries, indexing and building H3 aggregations…")
         # repair invalid geometries and add RTree indexes before the spatial joins below

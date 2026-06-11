@@ -10,7 +10,7 @@ from shapely import Polygon
 
 from safer_streets_core.database import duckdb_connector, index_geometry_tables
 from scripts import build_db
-from scripts.build_db import GREENSPACE_ZIP, load_greenspace
+from scripts.build_db import GREENSPACE_ZIP, load_greenspace, load_land_cover
 
 # inner path mirrors the real OS bundle layout (…/data/GB_GreenspaceSite.shp)
 _INNER_DIR = "OS Open Greenspace (ESRI Shape File) GB/data"
@@ -84,4 +84,48 @@ def test_downloads_when_zip_missing(tmp_path, monkeypatch):
     load_greenspace(con)
     assert called["n"] == 1  # download triggered because the zip was absent
     assert con.execute("SELECT COUNT(*) FROM open_greenspace").fetchone()[0] == 2
+    con.close()
+
+
+def _write_land_cover_gpkg(directory: Path) -> Path:
+    """Write a tiny BNG GeoPackage mirroring the UKCEH LCM schema (gid, _mode)."""
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "_mode": [20, 21]},  # 20 = urban, 21 = suburban
+        geometry=[
+            Polygon([(0, 0), (100, 0), (100, 100), (0, 100)]),
+            Polygon([(200, 200), (300, 200), (300, 300), (200, 300)]),
+        ],
+        crs="EPSG:27700",
+    )
+    # mirror the order-specific nested layout matched by LAND_COVER_GLOB
+    nested = directory / "lcm-2024-vec_test"
+    nested.mkdir()
+    gpkg = nested / "lcm-2024-vec_test.gpkg"
+    gdf.to_file(gpkg, driver="GPKG")
+    return gpkg
+
+
+def test_land_cover_missing_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    with pytest.raises(FileNotFoundError, match="Land Cover Map GeoPackage not found"):
+        load_land_cover(MagicMock())
+
+
+def test_land_cover_loads_and_indexes(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    _write_land_cover_gpkg(tmp_path)
+
+    try:
+        con = duckdb_connector(writeable=True)
+    except duckdb.HTTPException as e:
+        pytest.skip(f"extension download unavailable: {e}")
+
+    load_land_cover(con)
+    cols = [d[0] for d in con.execute("SELECT * FROM land_cover LIMIT 0").description]
+    assert {"gid", "_mode", "geom"} <= set(cols)
+    assert con.execute("SELECT COUNT(*) FROM land_cover").fetchone()[0] == 2  # ty:ignore[not-subscriptable]
+
+    index_geometry_tables(con)
+    indexes = {r[0] for r in con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
+    assert "land_cover_geom_rtree" in indexes
     con.close()

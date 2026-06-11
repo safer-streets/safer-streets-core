@@ -116,6 +116,39 @@ class TestGreenspaceLookup:
         assert "h3_9_greenspace_lookup" not in views
 
 
+class TestOverlapFeatures:
+    @staticmethod
+    def _add_polygon_table(con, table, cols_sql):
+        poly = "POLYGON((-1.6 53.75,-1.5 53.75,-1.5 53.85,-1.6 53.85,-1.6 53.75))"
+        con.execute(f"""
+            CREATE TABLE {table} AS
+            SELECT {cols_sql},
+                   ST_Transform(ST_GeomFromText('{poly}'), 'EPSG:4326', 'EPSG:27700', always_xy := true) AS geom;
+        """)
+
+    def test_land_cover_ids_folded_into_geogs(self):
+        con = _make_db()
+        # land_cover mirrors the UKCEH LCM schema (gid, _mode)
+        self._add_polygon_table(con, "land_cover", "42 AS gid, 20 AS _mode")
+        transforms.build_all(con, resolutions=[9])
+
+        lc = con.execute("SELECT DISTINCT mode FROM h3_9_land_cover_lookup").fetchall()
+        assert lc == [(20,)]
+        ids = con.execute("SELECT DISTINCT land_cover_ids FROM h3_9_geogs").fetchall()
+        assert ids == [([42],)]
+
+    def test_both_features_folded_and_no_duplicate_cells(self):
+        con = _make_db()
+        self._add_polygon_table(con, "open_greenspace", "'GS1' AS id, 'Play Space' AS function")
+        self._add_polygon_table(con, "land_cover", "42 AS gid, 20 AS _mode")
+        transforms.build_all(con, resolutions=[9])
+
+        cols = [d[0] for d in con.execute("SELECT * FROM h3_9_geogs LIMIT 0").description]
+        assert {"greenspace_ids", "land_cover_ids"} <= set(cols)
+        dupes = con.execute("SELECT spatial_id, COUNT(*) c FROM h3_9_geogs GROUP BY spatial_id HAVING c > 1").fetchall()
+        assert dupes == []
+
+
 class TestReplaceFlag:
     def test_replace_true_rebuilds_table(self):
         con = _make_db()

@@ -22,16 +22,18 @@ DuckDB database. The pipeline:
 2. **ONS boundaries** — downloads the generalised boundary layers (PFA, LAD, MSOA, LSOA, OA)
    into one table each. Each layer is cached as a GeoPackage under the data directory and
    reused on later runs (pass `--force-download` to refresh).
-3. **Open greenspace** — downloads [OS Open Greenspace](https://osdatahub.os.uk/data/downloads/open/OpenGreenspace)
-   polygons from the OS Downloads API (open data, no API key), caches the GB shapefile zip
-   under the data directory (reused unless `--force-download`), and loads the polygon layer
-   into an `open_greenspace` table. Skipped with a warning if the download fails.
+3. **Greenspace and land cover** — `open_greenspace` is downloaded from the
+   [OS Open Greenspace](https://osdatahub.os.uk/data/downloads/open/OpenGreenspace) Downloads
+   API (open data, no API key) and cached as a zip (reused unless `--force-download`).
+   `land_cover` is loaded from a [UKCEH Land Cover Map](https://catalogue.ceh.ac.uk/) vector
+   GeoPackage found by glob under the data directory (licensed, so downloaded manually). Either
+   is skipped with a warning if absent.
 4. **H3 aggregations** — first repairs invalid geometries (`ST_MakeValid`) and builds an
    RTree spatial index on the geometry tables (all `geom` tables except `crime_data`), then
    builds, for each H3 resolution, `crime_counts_h3_{res}` (counts by cell / crime type /
-   month), `h3_{res}_{key}_lookup` views (cell → ONS geography), `h3_{res}_greenspace_lookup`
-   views (cell → each overlapping greenspace polygon, when greenspace is present), and
-   `h3_{res}_geogs` (one row per cell with every ONS code plus a `greenspace_ids` list).
+   month), `h3_{res}_{key}_lookup` views (cell → ONS geography), `h3_{res}_{name}_lookup`
+   views (cell → each overlapping greenspace / land-cover polygon, when present), and
+   `h3_{res}_geogs` (one row per cell with every ONS code plus `greenspace_ids` / `land_cover_ids` lists).
 
 To avoid serving a half-built database, the pipeline writes everything to a
 `<name>.staging.db` file and only promotes it with an atomic swap once every stage has

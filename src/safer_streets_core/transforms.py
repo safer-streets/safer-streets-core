@@ -10,11 +10,13 @@ contains:
 They build, for each H3 resolution:
   - ``crime_counts_h3_{res}``           counts grouped by H3 cell / crime type / month
   - ``h3_{res}_{key}_lookup``           a view mapping each H3 cell to one ONS geography code
-  - ``h3_{res}_greenspace_lookup``      a view of every greenspace polygon each H3 cell overlaps
-  - ``h3_{res}_geogs``                  one row per H3 cell with every ONS code (+ greenspace ids)
+  - ``h3_{res}_{name}_lookup``          a view of every overlapping polygon per cell (greenspace, land cover)
+  - ``h3_{res}_geogs``                  one row per H3 cell with every ONS code (+ overlap-feature id lists)
 
 Ported from the ``duckdb-spatial`` prototype notebook (safer-streets-eda).
 """
+
+from dataclasses import dataclass
 
 import duckdb
 
@@ -33,8 +35,25 @@ GEOGRAPHY_MAPPINGS = {
 # the geography used as the base table for h3_*_geogs (broadest coverage: incl. NI/Scotland)
 _BASE_KEY = "lad24"
 
-# greenspace polygons, loaded by build_db.load_greenspace (may be absent if the download was skipped)
-GREENSPACE_TABLE = "open_greenspace"
+
+@dataclass(frozen=True)
+class _OverlapFeature:
+    """A many-to-many polygon layer overlapped per H3 cell and folded into h3_geogs as a list."""
+
+    table: str  # source polygon table (may be absent → feature skipped)
+    name: str  # view name h3_{res}_{name}_lookup, and the {name}_ids list column
+    id_col: str  # id column in the source table
+    extra_col: str  # an extra descriptive column carried in the lookup view
+    extra_alias: str  # alias for that extra column in the lookup view
+    cte: str  # short CTE alias used when folding the list into h3_geogs
+
+
+# optional polygon layers folded into h3_geogs, each skipped if its table is absent.
+# loaded by build_db: open_greenspace (OS Open Greenspace), land_cover (UKCEH Land Cover Map).
+_OVERLAP_FEATURES: tuple[_OverlapFeature, ...] = (
+    _OverlapFeature("open_greenspace", "greenspace", "id", "function", "function", "gs"),
+    _OverlapFeature("land_cover", "land_cover", "gid", "_mode", "mode", "lc"),
+)
 
 
 def _create(kind: str, name: str, *, replace: bool) -> str:
@@ -115,80 +134,83 @@ def build_h3_geo_lookups(
             """)
 
 
-def build_h3_greenspace_lookups(
+def build_h3_overlap_lookups(
     con: duckdb.DuckDBPyConnection,
     resolutions: list[int] = H3_RESOLUTIONS,
+    features: tuple[_OverlapFeature, ...] = _OVERLAP_FEATURES,
     *,
     replace: bool = True,
 ) -> None:
-    """Create ``h3_{res}_greenspace_lookup`` views: one row per (H3 cell, overlapping greenspace).
+    """Create ``h3_{res}_{name}_lookup`` views: one row per (H3 cell, overlapping polygon).
 
-    Unlike the single-code geography lookups, a cell keeps *every* greenspace polygon it
-    intersects, with the overlap area. No-op if the open_greenspace table is absent (e.g. the
-    greenspace download was skipped).
+    Unlike the single-code geography lookups, a cell keeps *every* polygon it intersects, with
+    the overlap area. Each feature is skipped if its source table is absent (e.g. the greenspace
+    or land-cover load was skipped).
     """
-    if not _table_exists(con, GREENSPACE_TABLE):
-        return
-    for res in resolutions:
-        con.execute(f"""
-            {_create("VIEW", f"h3_{res}_greenspace_lookup", replace=replace)} AS
-            SELECT
-                c.spatial_id,
-                g.id AS greenspace_id,
-                g.function,
-                ST_Area(ST_Intersection(c.cell_geom, g.geom)) AS overlap_area
-            FROM (
-                SELECT DISTINCT
-                    spatial_id,
-                    ST_Transform(
-                        ST_GeomFromText(h3_cell_to_boundary_wkt(spatial_id)),
-                        'EPSG:4326', 'EPSG:27700', always_xy := true
-                    ) AS cell_geom
-                FROM crime_counts_h3_{res}
-            ) c
-            JOIN {GREENSPACE_TABLE} g ON ST_Intersects(c.cell_geom, g.geom);
-        """)
+    for f in features:
+        if not _table_exists(con, f.table):
+            continue
+        for res in resolutions:
+            con.execute(f"""
+                {_create("VIEW", f"h3_{res}_{f.name}_lookup", replace=replace)} AS
+                SELECT
+                    c.spatial_id,
+                    s.{f.id_col} AS {f.name}_id,
+                    s.{f.extra_col} AS {f.extra_alias},
+                    ST_Area(ST_Intersection(c.cell_geom, s.geom)) AS overlap_area
+                FROM (
+                    SELECT DISTINCT
+                        spatial_id,
+                        ST_Transform(
+                            ST_GeomFromText(h3_cell_to_boundary_wkt(spatial_id)),
+                            'EPSG:4326', 'EPSG:27700', always_xy := true
+                        ) AS cell_geom
+                    FROM crime_counts_h3_{res}
+                ) c
+                JOIN {f.table} s ON ST_Intersects(c.cell_geom, s.geom);
+            """)
 
 
 def build_h3_geogs(
     con: duckdb.DuckDBPyConnection,
     resolutions: list[int] = H3_RESOLUTIONS,
     mappings: dict[str, str] = GEOGRAPHY_MAPPINGS,
+    features: tuple[_OverlapFeature, ...] = _OVERLAP_FEATURES,
     *,
     replace: bool = True,
 ) -> None:
     """Create ``h3_{res}_geogs`` with one row per H3 cell carrying every ONS code.
 
     Built by LEFT JOINing the per-geography lookup views on ``spatial_id``, starting from
-    the broadest-coverage geography so cells outside England & Wales are still retained. When
-    greenspace data is present, a ``greenspace_ids`` list of overlapping polygons is added.
+    the broadest-coverage geography so cells outside England & Wales are still retained. For
+    each overlap feature whose data is present (greenspace, land cover), a ``{name}_ids`` list
+    of overlapping polygons is added.
     """
     base = _BASE_KEY if _BASE_KEY in mappings else next(iter(mappings))
     others = [key for key in mappings if key != base]
-    has_greenspace = _table_exists(con, GREENSPACE_TABLE)
+    present = [f for f in features if _table_exists(con, f.table)]
 
     for res in resolutions:
         select_cols = ", ".join([f"base.{base}", *(f"{key}.{key}" for key in others)])
         joins = "\n".join(f"LEFT JOIN h3_{res}_{key}_lookup {key} USING (spatial_id)" for key in others)
 
-        # fold the many-to-many greenspace lookup into a per-cell list, if available
-        gs_cte = gs_col = gs_join = ""
-        if has_greenspace:
-            gs_cte = f"""WITH gs AS (
-                SELECT spatial_id, LIST(greenspace_id) AS greenspace_ids
-                FROM h3_{res}_greenspace_lookup
-                GROUP BY spatial_id
-            )"""
-            gs_col = ", gs.greenspace_ids"
-            gs_join = "LEFT JOIN gs USING (spatial_id)"
+        # fold each many-to-many overlap lookup into a per-cell list, if available
+        ctes = [
+            f"{f.cte} AS (SELECT spatial_id, LIST({f.name}_id) AS {f.name}_ids "
+            f"FROM h3_{res}_{f.name}_lookup GROUP BY spatial_id)"
+            for f in present
+        ]
+        with_clause = ("WITH " + ", ".join(ctes)) if ctes else ""
+        feature_cols = "".join(f", {f.cte}.{f.name}_ids" for f in present)
+        feature_joins = "\n".join(f"LEFT JOIN {f.cte} USING (spatial_id)" for f in present)
 
         con.execute(f"""
             {_create("TABLE", f"h3_{res}_geogs", replace=replace)} AS
-            {gs_cte}
-            SELECT base.spatial_id, {select_cols}{gs_col}
+            {with_clause}
+            SELECT base.spatial_id, {select_cols}{feature_cols}
             FROM h3_{res}_{base}_lookup base
             {joins}
-            {gs_join};
+            {feature_joins};
         """)
 
 
@@ -206,5 +228,5 @@ def build_all(
     """
     build_crime_counts_h3(con, resolutions=resolutions, replace=replace)
     build_h3_geo_lookups(con, resolutions=resolutions, mappings=mappings, replace=replace)
-    build_h3_greenspace_lookups(con, resolutions=resolutions, replace=replace)
+    build_h3_overlap_lookups(con, resolutions=resolutions, replace=replace)
     build_h3_geogs(con, resolutions=resolutions, mappings=mappings, replace=replace)
