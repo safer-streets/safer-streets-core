@@ -127,6 +127,20 @@ def load_land_cover(con: duckdb.DuckDBPyConnection) -> None:
     print(f"  land_cover: {row_count:,} rows")
 
 
+def _rename_geom_column(con: duckdb.DuckDBPyConnection, table: str) -> None:
+    """Rename `table`'s geometry column to 'geom' if it has some other name (no-op if already 'geom')."""
+    geom_cols = [
+        row[0]
+        for row in con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = ? AND table_schema = 'main' AND data_type LIKE 'GEOMETRY%'",
+            [table],
+        ).fetchall()
+    ]
+    if geom_cols and geom_cols[0] != "geom":
+        con.execute(f'ALTER TABLE "{table}" RENAME COLUMN "{geom_cols[0]}" TO geom;')
+
+
 def load_roads(con: duckdb.DuckDBPyConnection, *, force_download: bool = False) -> None:
     """
     Create the `open_roads` table from the OS Open Roads dataset.
@@ -145,12 +159,14 @@ def load_roads(con: duckdb.DuckDBPyConnection, *, force_download: bool = False) 
     if not members:
         raise FileNotFoundError(f"{ROADS_LAYER} not found in {zip_path}")
 
-    # ENCODING=ISO-8859-1 matches the OS Open Greenspace shapefile
     vsizip = f"/vsizip/{zip_path}/{ROADS_LAYER}"
     con.execute(f"""
         CREATE OR REPLACE TABLE open_roads AS
         SELECT * FROM ST_Read('{vsizip}', layer='road_link');
     """)
+    # OS Open Roads names its geometry column 'geometry'; normalise to 'geom' for consistency
+    # with the other tables (so index_geometry_tables and the H3 overlap lookups find it).
+    _rename_geom_column(con, "open_roads")
     row_count = con.execute("SELECT COUNT(*) FROM open_roads").fetchone()[0]  # ty:ignore[not-subscriptable]
     print(f"  open_roads: {row_count:,} rows")
 

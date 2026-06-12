@@ -160,6 +160,24 @@ def test_roads_loads_road_link_layer(tmp_path, monkeypatch):
     con.close()
 
 
+def test_rename_geom_column_normalises_geometry():
+    try:
+        con = duckdb_connector(writeable=True)
+    except duckdb.HTTPException as e:
+        pytest.skip(f"extension download unavailable: {e}")
+
+    # mimic real OS Open Roads, whose geometry column is named 'geometry'
+    con.execute("CREATE TABLE open_roads AS SELECT 1 AS id, ST_Point(0, 0) AS geometry;")
+    build_db._rename_geom_column(con, "open_roads")
+    cols = {d[0] for d in con.execute("SELECT * FROM open_roads LIMIT 0").description}
+    assert "geom" in cols and "geometry" not in cols
+
+    # already-'geom' tables are left untouched
+    build_db._rename_geom_column(con, "open_roads")
+    assert "geom" in {d[0] for d in con.execute("SELECT * FROM open_roads LIMIT 0").description}
+    con.close()
+
+
 def test_no_replace_skips_existing_stages(tmp_path, monkeypatch):
     """--no-replace skips any stage whose output table is already in the staging DB."""
     monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
