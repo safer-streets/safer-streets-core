@@ -199,13 +199,14 @@ def test_no_replace_skips_existing_stages(tmp_path, monkeypatch):
     monkeypatch.setattr(build_db, "load_greenspace", lambda *a, **k: calls.append("greenspace"))
     monkeypatch.setattr(build_db, "load_land_cover", lambda *a, **k: calls.append("land_cover"))
     monkeypatch.setattr(build_db, "load_roads", lambda *a, **k: calls.append("roads"))
+    monkeypatch.setattr(build_db, "load_poi", lambda *a, **k: calls.append("poi"))
     monkeypatch.setattr(build_db, "index_geometry_tables", lambda con: None)
     monkeypatch.setattr(build_db.transforms, "build_all", lambda con, **k: None)
     monkeypatch.setattr(build_db.os, "replace", lambda src, dst: None)
 
     build_db.build(db_path=db_path, replace=False)
 
-    assert calls == ["land_cover", "roads"]  # the three already-present stages were skipped
+    assert calls == ["land_cover", "roads", "poi"]  # the already-present stages were skipped
 
 
 def test_extract_cached_extracts_reuses_and_refreshes(tmp_path):
@@ -229,3 +230,35 @@ def test_extract_cached_extracts_reuses_and_refreshes(tmp_path):
         z.writestr("Data/file.gpkg", b"v2")
     os.utime(zp, (time.time() + 10, time.time() + 10))
     assert build_db._extract_cached(zp, "Data/file.gpkg").read_bytes() == b"v2"
+
+
+def test_load_poi_streams_filtered_places(monkeypatch):
+    """Integration: stream a tiny Overture bbox into the poi table (skipped if S3 is unreachable)."""
+    try:
+        con = duckdb_connector(writeable=True)
+    except duckdb.HTTPException as e:
+        pytest.skip(f"extension download unavailable: {e}")
+
+    # a tiny bbox keeps the download small; the module default is all of E&W
+    monkeypatch.setattr(build_db, "POI_BBOX", (-1.84, 53.91, -1.80, 53.94))
+    try:
+        build_db.load_poi(con)
+    except Exception as e:  # noqa: BLE001 — network/S3 unavailable in this environment
+        con.close()
+        pytest.skip(f"Overture S3 unavailable: {e}")
+
+    cols = {d[0] for d in con.execute("SELECT * FROM poi LIMIT 0").description}
+    assert cols == {"poi_id", "geom", "name", "postcode", "basic_category", "primary_category", "alternate_category"}
+    # geometry transformed to BNG GEOMETRY (so it gets RTree-indexed)
+    geom_type = con.execute(
+        "SELECT data_type FROM information_schema.columns WHERE table_name='poi' AND column_name='geom'"
+    ).fetchone()[0]  # ty:ignore[not-subscriptable]
+    assert geom_type == "GEOMETRY"
+    # only the requested categories are kept
+    cats = {r[0] for r in con.execute("SELECT DISTINCT basic_category FROM poi").fetchall()}
+    assert cats <= set(build_db.POI_CATEGORIES)
+
+    index_geometry_tables(con)
+    indexes = {r[0] for r in con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
+    assert "poi_geom_rtree" in indexes
+    con.close()

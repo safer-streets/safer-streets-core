@@ -22,11 +22,12 @@ DuckDB database. The pipeline:
 2. **ONS boundaries** — downloads the generalised boundary layers (PFA, LAD, MSOA, LSOA, OA)
    into one table each. Each layer is cached as a GeoPackage under the data directory and
    reused on later runs (pass `--force-download` to refresh).
-3. **Greenspace, land cover and roads** — `open_greenspace` and `open_roads` are downloaded
-   from the OS Downloads API (open data, no API key) and cached as zips (reused unless
-   `--force-download`). `land_cover` is loaded from a [UKCEH Land Cover Map](https://catalogue.ceh.ac.uk/)
-   vector GeoPackage (licensed — see [Manual downloads](#manual-downloads)). Any of these is
-   skipped with a warning if absent.
+3. **Supplementary layers** — `open_greenspace` and `open_roads` are downloaded from the OS
+   Downloads API (open data, no API key) and cached as zips (reused unless `--force-download`);
+   `poi` is streamed from [Overture Maps](https://overturemaps.org/) places (selected categories)
+   straight into DuckDB via the `overturemaps` reader (no intermediate file). `land_cover` is
+   loaded from a [UKCEH Land Cover Map](https://catalogue.ceh.ac.uk/) vector GeoPackage (licensed
+   — see [Manual downloads](#manual-downloads)). Any of these is skipped with a warning if absent.
 4. **H3 aggregations** — first repairs invalid geometries (`ST_MakeValid`) and builds an
    RTree spatial index on the geometry tables (all `geom` tables except `crime_data`), then
    builds, for each H3 resolution, `crime_counts_h3_{res}` (counts by cell / crime type /
@@ -81,8 +82,8 @@ not present:
 | --- | --- | --- | --- |
 | UKCEH Land Cover Map (vector) | `land_cover` | [EIDC catalogue](https://catalogue.ceh.ac.uk/) — requires (free) registration and licence acceptance | the downloaded zip, named as the `LAND_COVER_ZIP` constant in `build_db.py`, placed directly in the data directory (the build reads the `.gpkg` inside it) |
 
-Everything else — the police.uk crime archive, ONS boundaries, OS Open Greenspace and OS Open
-Roads — is open data and downloaded automatically (and cached) by `build-db`.
+Everything else — the police.uk crime archive, ONS boundaries, OS Open Greenspace, OS Open
+Roads and Overture Maps POI — is open data and fetched automatically by `build-db`.
 
 ## Content Overview
 

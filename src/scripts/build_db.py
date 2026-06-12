@@ -4,7 +4,7 @@ Build the production DuckDB database in one reproducible pass.
 Pipeline stages:
   1. extract.to_database   crime_data table (geometry, BNG)
   2. ons_boundaries.load_all   boundary tables (pfa, lad, msoa, lsoa, oa)
-  3. open greenspace + land cover   OS Open Greenspace + UKCEH Land Cover polygons (BNG)
+  3. supplementary layers   OS Open Greenspace + UKCEH Land Cover + OS Open Roads + Overture POI
   4. transforms.build_all   H3 count tables + geo/overlap lookup tables
 
 The pipeline writes to a ``<name>.staging.db`` file and only promotes it to the live
@@ -24,6 +24,7 @@ from zipfile import ZipFile
 import duckdb
 import requests
 import typer
+from overturemaps import core as overture
 from tqdm import tqdm
 
 from safer_streets_core import transforms
@@ -51,6 +52,27 @@ ROADS_LAYER = "Data/oproad_gb.gpkg"
 
 LAND_COVER_ZIP = "Download_land+cover+2024_2983803.zip"
 LAND_COVER_LAYER = "*.gpkg"  # there should only be one
+
+# Overture Maps places (POI), streamed from S3 via the overturemaps reader (no API key).
+# England & Wales bounding box in WGS-84 (xmin, ymin, xmax, ymax).
+POI_BBOX = (-5.86, 49.75, 1.81, 56.0)
+POI_CATEGORIES = (
+    "adult_entertainment_venue",
+    "alcoholic_beverage_venue",
+    "atm",
+    "bar",
+    "casino",
+    "casual_eatery",
+    "emergency_department",
+    "fast_food_restaurant",
+    "food_service",
+    "hospital",
+    "inn",
+    "lounge",
+    "parking",
+    "police station",
+    "restaurant",
+)
 
 
 def _download(url: str, zip_path: Path) -> None:
@@ -188,6 +210,40 @@ def load_roads(con: duckdb.DuckDBPyConnection, *, force_download: bool = False) 
     print(f"  open_roads: {row_count:,} rows")
 
 
+def load_poi(con: duckdb.DuckDBPyConnection) -> None:
+    """
+    Create the `poi` table from Overture Maps places (points of interest).
+
+    The Overture `place` theme is streamed from S3 (anonymous, no API key) straight into DuckDB
+    via the overturemaps reader — no intermediate file. Only the categories of interest are kept,
+    and geometry is transformed from WGS-84 to BNG (yielding a `geom` column that
+    index_geometry_tables then RTree-indexes).
+    """
+    print("  Streaming Overture places…")
+    reader = overture.record_batch_reader("place", bbox=POI_BBOX)
+    if reader is None:
+        raise RuntimeError("Overture Maps download failed (record_batch_reader returned None)")
+
+    # `reader` is consumed directly by DuckDB via an Arrow replacement scan
+    con.execute(
+        """
+        CREATE OR REPLACE TABLE poi AS SELECT
+            id AS poi_id,
+            ST_Transform(geometry, 'EPSG:4326', 'EPSG:27700', always_xy := true) AS geom,
+            names.primary AS name,
+            addresses[1].postcode AS postcode,
+            basic_category,
+            categories.primary AS primary_category,
+            categories.alternate AS alternate_category
+        FROM reader
+        WHERE basic_category = ANY(?)
+        """,
+        [list(POI_CATEGORIES)],
+    )
+    row_count = con.execute("SELECT COUNT(*) FROM poi").fetchone()[0]  # ty:ignore[not-subscriptable]
+    print(f"  poi: {row_count:,} rows")
+
+
 @app.command()
 def build(
     db_path: Path | None = None,
@@ -236,7 +292,7 @@ def build(
 
     con = duckdb_connector(staging, writeable=True)
     try:
-        print("\n[3/4] Loading greenspace, land cover, roads…")
+        print("\n[3/4] Loading greenspace, land cover, roads, POI…")
         if "open_greenspace" in existing:
             print("  keeping existing open_greenspace")
         else:
@@ -259,6 +315,13 @@ def build(
                 load_roads(con, force_download=force_download)
             except (requests.RequestException, FileNotFoundError) as exc:
                 print(f"  Skipping roads: {exc}")
+        if "poi" in existing:
+            print("  keeping existing poi")
+        else:
+            try:
+                load_poi(con)
+            except Exception as exc:  # noqa: BLE001  # Overture S3 read can fail in various ways
+                print(f"  Skipping POI: {exc}")
 
         print("\n[4/4] Validating geometries, indexing and building H3 aggregations…")
         # repair invalid geometries and add RTree indexes before the spatial joins below
