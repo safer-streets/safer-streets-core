@@ -17,6 +17,7 @@ pass --db-path to override.
 """
 
 import os
+import shutil
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -93,6 +94,23 @@ def load_greenspace(con: duckdb.DuckDBPyConnection, *, force_download: bool = Fa
     print(f"  open_greenspace: {row_count:,} rows")
 
 
+def _extract_cached(zip_path: Path, member: str) -> Path:
+    """
+    Extract a single zip member to a cached file beside the zip and return its path.
+
+    ST_Read over /vsizip is much slower for a GeoPackage than reading an extracted file:
+    GPKG is SQLite, so every random seek forces /vsizip to re-decompress from a sync point.
+    The extracted file is cached and only re-extracted if the zip is newer.
+    """
+    dest = zip_path.with_suffix("") / Path(member).name
+    if not dest.exists() or dest.stat().st_mtime < zip_path.stat().st_mtime:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        print(f"  Extracting {member}…")
+        with ZipFile(zip_path) as z, z.open(member) as src, open(dest, "wb") as out:
+            shutil.copyfileobj(src, out)
+    return dest
+
+
 # UKCEH Land Cover Map vector GeoPackage. Licensed (EIDC, https://catalogue.ceh.ac.uk/) so it
 # cannot be auto-downloaded — download the LCM vector bundle geopackage. Data is already in BNG (EPSG:27700).
 def load_land_cover(con: duckdb.DuckDBPyConnection) -> None:
@@ -106,22 +124,21 @@ def load_land_cover(con: duckdb.DuckDBPyConnection) -> None:
     zip_path = data_dir() / LAND_COVER_ZIP
     if not zip_path.exists():
         raise FileNotFoundError(
-            f"UKCEH Land Cover Map GeoPackage not found under {data_dir() / LAND_COVER_ZIP}.\n"
-            "Download the LCM vector bundle geopackage from the EIDC (https://catalogue.ceh.ac.uk/) and unzip it "
-            "under the data directory."
+            f"UKCEH Land Cover Map GeoPackage not found: {data_dir() / LAND_COVER_ZIP}\n"
+            f"Download the LCM vector bundle from the EIDC (https://catalogue.ceh.ac.uk/) and place the zip "
+            f"(named {LAND_COVER_ZIP}) in the data directory."
         )
 
     with ZipFile(zip_path) as z:
         members = [name for name in z.namelist() if name.endswith(".gpkg")]
     if not members:
         raise FileNotFoundError(f"No .gpkg found in {zip_path}")
-    gpkg = members[0]
 
-    print(f"  Loading land_cover from {zip_path}/{gpkg}…")
-    vsizip = f"/vsizip/{zip_path}/{members[0]}"
+    gpkg = _extract_cached(zip_path, members[0])
+    print(f"  Loading land_cover from {gpkg}…")
     con.execute(f"""
         CREATE OR REPLACE TABLE land_cover AS
-        SELECT * FROM ST_Read('{vsizip}');
+        SELECT * FROM ST_Read('{gpkg}');
     """)
     row_count = con.execute("SELECT COUNT(*) FROM land_cover").fetchone()[0]  # ty:ignore[not-subscriptable]
     print(f"  land_cover: {row_count:,} rows")
@@ -159,10 +176,10 @@ def load_roads(con: duckdb.DuckDBPyConnection, *, force_download: bool = False) 
     if not members:
         raise FileNotFoundError(f"{ROADS_LAYER} not found in {zip_path}")
 
-    vsizip = f"/vsizip/{zip_path}/{ROADS_LAYER}"
+    gpkg = _extract_cached(zip_path, members[0])
     con.execute(f"""
         CREATE OR REPLACE TABLE open_roads AS
-        SELECT * FROM ST_Read('{vsizip}', layer='road_link');
+        SELECT * FROM ST_Read('{gpkg}', layer='road_link');
     """)
     # OS Open Roads names its geometry column 'geometry'; normalise to 'geom' for consistency
     # with the other tables (so index_geometry_tables and the H3 overlap lookups find it).

@@ -206,3 +206,26 @@ def test_no_replace_skips_existing_stages(tmp_path, monkeypatch):
     build_db.build(db_path=db_path, replace=False)
 
     assert calls == ["land_cover", "roads"]  # the three already-present stages were skipped
+
+
+def test_extract_cached_extracts_reuses_and_refreshes(tmp_path):
+    import os
+    import time
+
+    zp = tmp_path / "bundle.zip"
+    with ZipFile(zp, "w") as z:
+        z.writestr("Data/file.gpkg", b"v1")
+
+    out = build_db._extract_cached(zp, "Data/file.gpkg")
+    assert out == tmp_path / "bundle" / "file.gpkg"
+    assert out.read_bytes() == b"v1"
+
+    # second call with an unchanged zip reuses the extracted file (no re-extract)
+    mtime = out.stat().st_mtime
+    assert build_db._extract_cached(zp, "Data/file.gpkg").stat().st_mtime == mtime
+
+    # a newer zip triggers re-extraction
+    with ZipFile(zp, "w") as z:
+        z.writestr("Data/file.gpkg", b"v2")
+    os.utime(zp, (time.time() + 10, time.time() + 10))
+    assert build_db._extract_cached(zp, "Data/file.gpkg").read_bytes() == b"v2"
