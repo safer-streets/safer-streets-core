@@ -26,7 +26,7 @@ import typer
 from tqdm import tqdm
 
 from safer_streets_core import transforms
-from safer_streets_core.database import duckdb_connector, index_geometry_tables
+from safer_streets_core.database import duckdb_connector, duckdb_context, index_geometry_tables
 from safer_streets_core.utils import data_dir, database_path
 from scripts import extract, ons_boundaries
 
@@ -165,40 +165,67 @@ def build(
 ) -> None:
     """Run the full pipeline into a staging file, then atomically swap it into place.
 
-    With --replace (default) the staging database is rebuilt from scratch. With
-    --no-replace an existing staging database is reused and H3 tables/views that are
-    already present are kept (CREATE ... IF NOT EXISTS), letting an interrupted build resume.
+    With --replace (default) the staging database is rebuilt from scratch. With --no-replace
+    an existing staging database is reused: any stage whose output table is already present is
+    skipped (crime, boundaries, greenspace, land cover, roads), and existing H3 tables/views
+    are kept (CREATE ... IF NOT EXISTS). This lets an interrupted build resume without redoing
+    completed stages — notably the large road download.
     """
     db_path = db_path or database_path()
     staging = db_path.with_suffix(".staging.db")
     if replace:
         staging.unlink(missing_ok=True)
 
+    # under --no-replace, find what the staging DB already contains so finished stages are skipped
+    existing: set[str] = set()
+    if not replace and staging.exists():
+        with duckdb_context(staging) as check:
+            existing = {
+                row[0]
+                for row in check.execute(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+                ).fetchall()
+            }
+
     print(f"\n=== Building {db_path} (staging: {staging}) ===\n")
 
     print("[1/4] Extracting crime data…")
-    extract.to_database(db_path=staging, force_download=force_download)
+    if "crime_data" in existing:
+        print("  keeping existing crime_data")
+    else:
+        extract.to_database(db_path=staging, force_download=force_download)
 
     print("\n[2/4] Downloading ONS boundaries…")
-    ons_boundaries.load_all(db_path=staging, crs="bng", layers=layers, force_download=force_download)
+    if "local_authority_districts" in existing:  # base boundary table → boundaries already loaded
+        print("  keeping existing boundaries")
+    else:
+        ons_boundaries.load_all(db_path=staging, crs="bng", layers=layers, force_download=force_download)
 
     con = duckdb_connector(staging, writeable=True)
     try:
         print("\n[3/4] Loading greenspace, land cover, roads…")
-        try:
-            load_greenspace(con, force_download=force_download)
-        except (requests.RequestException, FileNotFoundError) as exc:
-            # supplementary datasets; warn but don't abort the whole build
-            print(f"  Skipping greenspace: {exc}")
-        try:
-            load_land_cover(con)
-        except FileNotFoundError as exc:
-            print(f"  Skipping land cover: {exc}")
-        try:
-            load_roads(con, force_download=force_download)
-        except (requests.RequestException, FileNotFoundError) as exc:
-            # supplementary datasets; warn but don't abort the whole build
-            print(f"  Skipping roads: {exc}")
+        if "open_greenspace" in existing:
+            print("  keeping existing open_greenspace")
+        else:
+            try:
+                load_greenspace(con, force_download=force_download)
+            except (requests.RequestException, FileNotFoundError) as exc:
+                # supplementary datasets; warn but don't abort the whole build
+                print(f"  Skipping greenspace: {exc}")
+        if "land_cover" in existing:
+            print("  keeping existing land_cover")
+        else:
+            try:
+                load_land_cover(con)
+            except FileNotFoundError as exc:
+                print(f"  Skipping land cover: {exc}")
+        if "open_roads" in existing:
+            print("  keeping existing open_roads")
+        else:
+            try:
+                load_roads(con, force_download=force_download)
+            except (requests.RequestException, FileNotFoundError) as exc:
+                print(f"  Skipping roads: {exc}")
 
         print("\n[4/4] Validating geometries, indexing and building H3 aggregations…")
         # repair invalid geometries and add RTree indexes before the spatial joins below

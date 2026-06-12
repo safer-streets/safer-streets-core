@@ -158,3 +158,33 @@ def test_roads_loads_road_link_layer(tmp_path, monkeypatch):
     indexes = {r[0] for r in con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
     assert "open_roads_geom_rtree" in indexes
     con.close()
+
+
+def test_no_replace_skips_existing_stages(tmp_path, monkeypatch):
+    """--no-replace skips any stage whose output table is already in the staging DB."""
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    db_path = tmp_path / "safer_streets.db"
+    staging = db_path.with_suffix(".staging.db")
+
+    try:
+        con = duckdb_connector(staging, writeable=True)
+    except duckdb.HTTPException as e:
+        pytest.skip(f"extension download unavailable: {e}")
+    # pre-populate a partial staging DB: crime, boundaries and greenspace done; land cover/roads not
+    for table in ("crime_data", "local_authority_districts", "open_greenspace"):
+        con.execute(f"CREATE TABLE {table} AS SELECT 1 AS x")
+    con.close()
+
+    calls: list[str] = []
+    monkeypatch.setattr(build_db.extract, "to_database", lambda **k: calls.append("crime"))
+    monkeypatch.setattr(build_db.ons_boundaries, "load_all", lambda **k: calls.append("boundaries"))
+    monkeypatch.setattr(build_db, "load_greenspace", lambda *a, **k: calls.append("greenspace"))
+    monkeypatch.setattr(build_db, "load_land_cover", lambda *a, **k: calls.append("land_cover"))
+    monkeypatch.setattr(build_db, "load_roads", lambda *a, **k: calls.append("roads"))
+    monkeypatch.setattr(build_db, "index_geometry_tables", lambda con: None)
+    monkeypatch.setattr(build_db.transforms, "build_all", lambda con, **k: None)
+    monkeypatch.setattr(build_db.os, "replace", lambda src, dst: None)
+
+    build_db.build(db_path=db_path, replace=False)
+
+    assert calls == ["land_cover", "roads"]  # the three already-present stages were skipped
