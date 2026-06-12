@@ -16,7 +16,6 @@ from safer_streets_core.utils import archive_path, data_dir, database_path, late
 # archives can be downloaded from https://data.police.uk/data/ (see also download_archive in utils.py)
 
 OUT_PATH = data_dir() / "extracted"
-OUT_PATH.mkdir(parents=True, exist_ok=True)
 
 app = typer.Typer()
 

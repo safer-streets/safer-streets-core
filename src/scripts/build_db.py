@@ -5,7 +5,7 @@ Pipeline stages:
   1. extract.to_database   crime_data table (geometry, BNG)
   2. ons_boundaries.load_all   boundary tables (pfa, lad, msoa, lsoa, oa)
   3. supplementary layers   OS Open Greenspace + UKCEH Land Cover + OS Open Roads + CDRC Retail
-                            Centres + Overture POI + GIAS schools (walk isochrones) + English IoD
+                            Centres + Overture POI + GIAS schools (walk isochrones) + English & Welsh IoD
   4. transforms.build_all   H3 count tables + geo/overlap/nearest lookup tables
 
 The pipeline writes to a ``<name>.staging.db`` file and only promotes it to the live
@@ -31,37 +31,23 @@ from tqdm import tqdm
 
 from safer_streets_core import transforms
 from safer_streets_core.database import duckdb_connector, duckdb_context, index_geometry_tables
-from safer_streets_core.utils import data_dir, database_path
+from safer_streets_core.utils import data_dir, data_source, database_path
 from scripts import extract, ons_boundaries
 
 app = typer.Typer(help="Build the production crime + boundaries + H3 DuckDB database.")
 
-# TODO merge these with the geodata_sources.json file
+# Source URLs and cached filenames (plus layer/sheet hints) live in config/data_sources.json, read via
+# utils.data_source(key). This module keeps only the bits that aren't "a URL or a file" — the column
+# schema and score-to-column mappings below, plus the Overture POI bbox/categories further down.
 
-# OS Open Greenspace, fetched from the OS Downloads API (open data, no API key needed).
-# The GB "ESRI Shapefile" bundle is a zip containing the GreenspaceSite (polygon) and
-# AccessPoint (point) layers; we load the polygons. Data is already in BNG (EPSG:27700).
-GREENSPACE_URL = (
-    "https://api.os.uk/downloads/v1/products/OpenGreenspace/downloads?area=GB&format=ESRI%C2%AE+Shapefile&redirect"
-)
-GREENSPACE_ZIP = "opgrsp_essh_gb.zip"
-GREENSPACE_LAYER = "GB_GreenspaceSite.shp"
-
-# OS Open Roads
-ROADS_URL = "https://api.os.uk/downloads/v1/products/OpenRoads/downloads?area=GB&format=GeoPackage&redirect"
-ROADS_ZIP = "oproad_gpkg_gb.zip"
-ROADS_LAYER = "Data/oproad_gb.gpkg"
-
-LAND_COVER_ZIP = "Download_land+cover+2024_2983803.zip"
-LAND_COVER_LAYER = "*.gpkg"  # there should only be one
-
-# CDRC Retail Centre Boundaries (licensed, https://data.cdrc.ac.uk/) — a single GeoPackage in BNG.
-RETAIL_CENTRES_GPKG = "Retail_Boundaries_UK.gpkg"
-
-# English Indices of Deprivation (IoD) "File 7" CSV (open data, manually downloaded). Scores are
-# converted to per-LSOA percentiles; Welsh LSOAs are not covered (WIMD is a separate dataset).
-IMD_CSV_GLOB = "File_7_IoD*All_Ranks_Scores_Deciles*.csv"
-# original IoD column name -> short name; everything except IMD_PASSTHROUGH is percentile-ranked
+# Deprivation scores -> per-LSOA percentiles. The `imd_scores_pct` table covers all of England & Wales:
+# English LSOAs come from the English IoD (data_source("imd")), Welsh LSOAs from the WIMD
+# (data_source("wimd")). Both index the 2021 LSOA geography, so they share `spatial_id` and merge by
+# row. Percentiles are computed WITHIN each country (England vs Wales are separate deprivation indices
+# and are not comparable across the border), so a percentile always means "relative to other LSOAs in
+# the same country".
+# original IoD column name -> short name; everything except IMD_PASSTHROUGH is percentile-ranked. This
+# is also the column set of the merged table, so the Welsh side maps onto the same short names.
 IMD_COLUMNS = {
     "LSOA code (2021)": "spatial_id",
     "Local Authority District code (2024)": "lad24cd",
@@ -75,16 +61,24 @@ IMD_COLUMNS = {
     "Crime Score": "crime",
     "Barriers to Housing and Services Score": "bhs",
     "Living Environment Score": "le",
-    "Income Deprivation Affecting Children Index (IDACI) Score (rate)": "idac",
-    "Income Deprivation Affecting Older People (IDAOPI) Score (rate)": "idaop",
-    "Children and Young People Sub-domain Score": "cyp",
-    "Adult Skills Sub-domain Score": "as",
-    "Geographical Barriers Sub-domain Score": "gb",
-    "Wider Barriers Sub-domain Score": "wb",
-    "Indoors Sub-domain Score": "indoors",
-    "Outdoors Sub-domain Score": "outdoors",
 }
 IMD_PASSTHROUGH = ("spatial_id", "lad24cd", "lad24nm", "imd_rank")
+
+# WIMD scores use the same "higher = more deprived" convention as the English IoD. Welsh domains map
+# onto the English short names below; "Access to Services" + "Housing" are averaged into `bhs`
+# (England's single "Barriers to Housing and Services" domain), and the overall WIMD score also yields
+# `imd_rank` (1 = most deprived). There is no Welsh equivalent of the English sub-domains, which is why
+# they are dropped from IMD_COLUMNS above.
+# WIMD "Data" sheet column -> imd_scores_pct short name (each percentile-ranked within Wales)
+WIMD_DOMAINS = {
+    "WIMD 2025": "imd_score",
+    "Income": "income",
+    "Employment": "employment",
+    "Education": "est",
+    "Health": "hdd",
+    "Community Safety": "crime",
+    "Physical Environment": "le",
+}
 
 # Overture Maps places (POI), streamed from S3 via the overturemaps reader (no API key).
 # England & Wales bounding box in WGS-84 (xmin, ymin, xmax, ymax).
@@ -123,21 +117,23 @@ def load_greenspace(con: duckdb.DuckDBPyConnection, *, force_download: bool = Fa
     """
     Create the `open_greenspace` table from the OS Open Greenspace polygons.
 
-    The GB shapefile bundle is downloaded from the OS Downloads API and cached under the
-    data directory (reused unless force_download). The polygon layer is read straight from
-    the zip via GDAL's /vsizip. ST_Read yields a `geom` column, so index_geometry_tables
-    repairs and RTree-indexes it with the boundary tables.
+    The GB shapefile bundle (open data, no API key) is downloaded from the OS Downloads API and
+    cached under the data directory (reused unless force_download). The bundle is a zip of the
+    GreenspaceSite (polygon) and AccessPoint (point) layers; we load the polygons. Data is already in
+    BNG (EPSG:27700). The polygon layer is read straight from the zip via GDAL's /vsizip. ST_Read
+    yields a `geom` column, so index_geometry_tables repairs and RTree-indexes it with the boundaries.
     """
-    zip_path = data_dir() / GREENSPACE_ZIP
+    src = data_source("greenspace")
+    zip_path = data_dir() / src["zip"]
     if force_download or not zip_path.exists():
-        _download(GREENSPACE_URL, zip_path)
+        _download(src["url"], zip_path)
     else:
         print(f"  Using cached {zip_path}")
 
     with ZipFile(zip_path) as z:
-        members = [name for name in z.namelist() if name.endswith(GREENSPACE_LAYER)]
+        members = [name for name in z.namelist() if name.endswith(src["layer"])]
     if not members:
-        raise FileNotFoundError(f"{GREENSPACE_LAYER} not found in {zip_path}")
+        raise FileNotFoundError(f"{src['layer']} not found in {zip_path}")
 
     # ENCODING=ISO-8859-1 matches the OS Open Greenspace shapefile
     vsizip = f"/vsizip/{zip_path}/{members[0]}"
@@ -166,22 +162,22 @@ def _extract_cached(zip_path: Path, member: str) -> Path:
     return dest
 
 
-# UKCEH Land Cover Map vector GeoPackage. Licensed (EIDC, https://catalogue.ceh.ac.uk/) so it
-# cannot be auto-downloaded — download the LCM vector bundle geopackage. Data is already in BNG (EPSG:27700).
 def load_land_cover(con: duckdb.DuckDBPyConnection) -> None:
     """
     Create the `land_cover` table from the UKCEH Land Cover Map vector GeoPackage.
 
-    The GeoPackage is located under the data directory by glob. ST_Read yields a `geom`
-    column (with `gid` and `_mode`), so index_geometry_tables repairs and RTree-indexes it.
+    Licensed (EIDC, https://catalogue.ceh.ac.uk/) so it cannot be auto-downloaded — the LCM vector
+    bundle zip is located under the data directory (the `.gpkg` inside it is read; already BNG /
+    EPSG:27700). ST_Read yields a `geom` column (with `gid` and `_mode`), so index_geometry_tables
+    repairs and RTree-indexes it.
     """
-
-    zip_path = data_dir() / LAND_COVER_ZIP
+    zip_name = data_source("land_cover")["zip"]
+    zip_path = data_dir() / zip_name
     if not zip_path.exists():
         raise FileNotFoundError(
-            f"UKCEH Land Cover Map GeoPackage not found: {data_dir() / LAND_COVER_ZIP}\n"
+            f"UKCEH Land Cover Map GeoPackage not found: {zip_path}\n"
             f"Download the LCM vector bundle from the EIDC (https://catalogue.ceh.ac.uk/) and place the zip "
-            f"(named {LAND_COVER_ZIP}) in the data directory."
+            f"(named {zip_name}) in the data directory."
         )
 
     with ZipFile(zip_path) as z:
@@ -217,19 +213,20 @@ def load_roads(con: duckdb.DuckDBPyConnection, *, force_download: bool = False) 
     """
     Create the `open_roads` table from the OS Open Roads dataset.
 
-    The GB geopackage is downloaded from the OS Downloads API and cached under the
-    data directory (reused unless force_download).
+    The GB geopackage (open data, no API key) is downloaded from the OS Downloads API and cached
+    under the data directory (reused unless force_download).
     """
-    zip_path = data_dir() / ROADS_ZIP
+    src = data_source("roads")
+    zip_path = data_dir() / src["zip"]
     if force_download or not zip_path.exists():
-        _download(ROADS_URL, zip_path)
+        _download(src["url"], zip_path)
     else:
         print(f"  Using cached {zip_path}")
 
     with ZipFile(zip_path) as z:
-        members = [name for name in z.namelist() if name.endswith(ROADS_LAYER)]
+        members = [name for name in z.namelist() if name.endswith(src["layer"])]
     if not members:
-        raise FileNotFoundError(f"{ROADS_LAYER} not found in {zip_path}")
+        raise FileNotFoundError(f"{src['layer']} not found in {zip_path}")
 
     gpkg = _extract_cached(zip_path, members[0])
     con.execute(f"""
@@ -245,16 +242,17 @@ def load_roads(con: duckdb.DuckDBPyConnection, *, force_download: bool = False) 
 
 def load_retail_centres(con: duckdb.DuckDBPyConnection) -> None:
     """
-    Create the `retail_centres` table from the CDRC Retail Centre Boundaries GeoPackage.
+    Create the `retail_centres` table from the GeoDS Retail Centre Boundaries GeoPackage.
 
-    Licensed (CDRC), so the GeoPackage is downloaded manually into the data directory. ST_Read
-    yields a `geom` column, so index_geometry_tables RTree-indexes it.
+    Licensed (Geographic Data Service), so the GeoPackage is downloaded manually into the data
+    directory. ST_Read yields a `geom` column, so index_geometry_tables RTree-indexes it.
     """
-    gpkg = data_dir() / RETAIL_CENTRES_GPKG
+    gpkg_name = data_source("retail_centres")["gpkg"]
+    gpkg = data_dir() / gpkg_name
     if not gpkg.exists():
         raise FileNotFoundError(
-            f"CDRC Retail Centre Boundaries GeoPackage not found: {gpkg}\n"
-            f"Download {RETAIL_CENTRES_GPKG} from the CDRC (https://data.cdrc.ac.uk/) and place it in the data directory."
+            f"GeoDS Retail Centre Boundaries GeoPackage not found: {gpkg}\n"
+            f"Download {gpkg_name} from the Geographic Data Service (https://geods.ac.uk/) and place it in the data directory."
         )
 
     print(f"  Loading retail_centres from {gpkg}…")
@@ -310,9 +308,8 @@ def load_poi(con: duckdb.DuckDBPyConnection) -> None:
     print(f"  poi: {row_count:,} rows")
 
 
-# Schools: GIAS "Get Information About Schools" export (edubasealldata<date>.csv, open data,
-# downloaded manually). Isochrones are 10-minute walk catchments over the open_roads network.
-GIAS_GLOB = "edubasealldata*.csv"
+# Schools: GIAS "Get Information About Schools" export (data_source("schools")). Isochrones are
+# 10-minute walk catchments over the open_roads network.
 WALK_TRIP_MINUTES = 10
 WALK_SPEED_KMH = 5
 WALK_RADIUS_M = WALK_TRIP_MINUTES * WALK_SPEED_KMH * 1000 / 60  # reachable network distance, metres
@@ -361,10 +358,11 @@ def load_schools(con: duckdb.DuckDBPyConnection) -> None:
     Open schools with valid coordinates are parsed into a point `geom` (BNG); a walk catchment
     `isochrone` polygon is then computed over the open_roads network (so this requires open_roads).
     """
-    matches = sorted(data_dir().glob(GIAS_GLOB))
+    glob = data_source("schools")["glob"]
+    matches = sorted(data_dir().glob(glob))
     if not matches:
         raise FileNotFoundError(
-            f"GIAS schools export not found under {data_dir()} (glob {GIAS_GLOB}).\n"
+            f"GIAS schools export not found under {data_dir()} (glob {glob}).\n"
             "Download 'all establishment data' from https://get-information-schools.service.gov.uk/ "
             "and place the CSV in the data directory."
         )
@@ -425,27 +423,93 @@ def load_schools(con: duckdb.DuckDBPyConnection) -> None:
     print(f"  schools: {row_count:,} rows")
 
 
-def load_imd(con: duckdb.DuckDBPyConnection) -> None:
-    """
-    Create the `imd_scores_pct` table: English IoD scores converted to per-LSOA percentiles.
+def _imd_england(*, force_download: bool = False) -> pd.DataFrame:
+    """English IoD "File 7" as per-LSOA percentiles (the IMD_COLUMNS short names).
 
-    The IoD "File 7" CSV is parsed, the columns of interest are renamed, and every score column
-    (all except IMD_PASSTHROUGH) is replaced by its percentile rank (0–1, higher = more deprived).
-    Keyed by `spatial_id` (the LSOA21 code), so consumers join it to the lsoa geography. England
-    only — Welsh LSOAs are not covered.
+    The CSV is downloaded from gov.uk and cached under the data directory (reused unless
+    force_download). Columns of interest are renamed and every score column (all except
+    IMD_PASSTHROUGH) is replaced by its percentile rank within England (0–1, higher = more deprived).
     """
-    matches = sorted(data_dir().glob(IMD_CSV_GLOB))
-    if not matches:
-        raise FileNotFoundError(
-            f"English IoD 'File 7' CSV not found under {data_dir()} (glob {IMD_CSV_GLOB}).\n"
-            "Download it from https://www.gov.uk/government/statistics/english-indices-of-deprivation-2025 "
-            "and place the CSV in the data directory."
-        )
+    src = data_source("imd")
+    matches = sorted(data_dir().glob(src["glob"]))
+    if force_download or not matches:
+        csv_path = data_dir() / src["csv"]
+        _download(src["url"], csv_path)
+    else:
+        csv_path = matches[-1]
+        print(f"  Using cached {csv_path}")
 
-    imd = pd.read_csv(matches[-1])[list(IMD_COLUMNS)].rename(columns=IMD_COLUMNS)
+    imd = pd.read_csv(csv_path)[list(IMD_COLUMNS)].rename(columns=IMD_COLUMNS)
     for column in imd.columns:
         if column not in IMD_PASSTHROUGH:
             imd[column] = imd[column].rank(pct=True)
+    return imd
+
+
+def _welsh_lad_codes(con: duckdb.DuckDBPyConnection) -> dict[str, str]:
+    """Map LA name -> LAD24 code from the boundary table, so Welsh rows can be given an `lad24cd`
+    (the WIMD file carries the LA name but not its code). Empty if boundaries aren't loaded yet or the
+    lookup fails, in which case `lad24cd` is left null for Welsh rows."""
+    tables = {
+        r[0]
+        for r in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()
+    }
+    if "local_authority_districts" not in tables:
+        return {}
+    try:
+        return {
+            name: code
+            for code, name in con.execute("SELECT spatial_id, lad24nm FROM local_authority_districts").fetchall()
+        }
+    except duckdb.Error:
+        return {}
+
+
+def _imd_wales(con: duckdb.DuckDBPyConnection, *, force_download: bool = False) -> pd.DataFrame:
+    """Welsh WIMD scores as per-LSOA percentiles, on the same IMD_COLUMNS short names as England.
+
+    The ODS is downloaded from gov.wales and cached under the data directory (reused unless
+    force_download). WIMD scores use the same "higher = more deprived" convention as the English IoD,
+    so each is percentile-ranked within Wales the same way. `imd_rank` is derived from the overall
+    score (1 = most deprived); `lad24cd` is looked up from the boundary table by LA name.
+    """
+    src = data_source("wimd")
+    ods_path = data_dir() / src["ods"]
+    if force_download or not ods_path.exists():
+        _download(src["url"], ods_path)
+    else:
+        print(f"  Using cached {ods_path}")
+
+    raw = pd.read_excel(ods_path, engine="odf", sheet_name=src["sheet"], header=src["header_row"])
+    raw = raw.rename(columns=lambda c: str(c).strip())
+
+    wales = pd.DataFrame({"spatial_id": raw["LSOA code"], "lad24nm": raw["Local Authority name"]})
+    wales["lad24cd"] = wales["lad24nm"].map(_welsh_lad_codes(con))
+    wales["imd_rank"] = raw["WIMD 2025"].rank(ascending=False, method="min").astype("int64")
+    for ods_column, short in WIMD_DOMAINS.items():
+        wales[short] = raw[ods_column].rank(pct=True)
+    # England's single "Barriers to Housing and Services" domain ≈ Wales' "Access to Services" +
+    # "Housing"; average the two scores, then percentile-rank that composite.
+    wales["bhs"] = ((raw["Access to Services"] + raw["Housing"]) / 2).rank(pct=True)
+    return wales[list(IMD_COLUMNS.values())]
+
+
+def load_imd(con: duckdb.DuckDBPyConnection, *, force_download: bool = False) -> None:
+    """
+    Create the `imd_scores_pct` table: England (IoD) + Wales (WIMD) deprivation as per-LSOA percentiles.
+
+    Both indices are reduced to the same IMD_COLUMNS short names, percentile-ranked WITHIN each country
+    (higher = more deprived, so percentiles are not comparable across the border), then unioned into one
+    table keyed by `spatial_id` (the LSOA21 code) for joining to the lsoa geography. If the Welsh data
+    can't be fetched the table is still built from England alone.
+    """
+    england = _imd_england(force_download=force_download)
+    try:
+        wales = _imd_wales(con, force_download=force_download)
+    except (requests.RequestException, KeyError, ValueError) as exc:
+        print(f"  Welsh WIMD unavailable ({exc}); building imd_scores_pct from England only")
+        wales = england.iloc[:0]
+    imd = pd.concat([england, wales], ignore_index=True)
 
     con.register("imd_scores_pct_stg", imd)
     try:
@@ -552,8 +616,8 @@ def build(
             print("  keeping existing imd_scores_pct")
         else:
             try:
-                load_imd(con)
-            except FileNotFoundError as exc:
+                load_imd(con, force_download=force_download)
+            except (requests.RequestException, FileNotFoundError) as exc:
                 print(f"  Skipping IMD: {exc}")
 
         print("\n[4/4] Validating geometries, indexing and building H3 aggregations…")

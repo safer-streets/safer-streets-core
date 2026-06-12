@@ -65,7 +65,7 @@ import requests
 import typer
 
 from safer_streets_core.database import duckdb_context
-from safer_streets_core.utils import data_dir, database_path
+from safer_streets_core.utils import data_dir, data_source, database_path
 
 # ---------------------------------------------------------------------------
 # Layer catalogue
@@ -75,10 +75,9 @@ from safer_streets_core.utils import data_dir, database_path
 
 
 @lru_cache
-def sources(filename: Path | None = None) -> dict[str, Any]:
-    filename = filename or Path("./config/geodata_sources.json")
-    with filename.open() as fd:
-        return json.load(fd)
+def sources() -> dict[str, Any]:
+    """ONS boundary catalogue (base_url + per-layer endpoints), from the data_sources.json catalogue."""
+    return data_source("boundaries")
 
 
 # CRS string constants

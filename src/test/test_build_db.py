@@ -10,15 +10,19 @@ import pytest
 from shapely import LineString, Polygon
 
 from safer_streets_core.database import duckdb_connector, index_geometry_tables
+from safer_streets_core.utils import data_source
 from scripts import build_db
 from scripts.build_db import (
-    GREENSPACE_ZIP,
-    LAND_COVER_ZIP,
-    ROADS_ZIP,
     load_greenspace,
     load_land_cover,
     load_roads,
 )
+
+# source filenames now live in config/data_sources.json (read via data_source); fetch the ones the
+# fixtures need so tests stay in step with the catalogue
+GREENSPACE_ZIP = data_source("greenspace")["zip"]
+LAND_COVER_ZIP = data_source("land_cover")["zip"]
+ROADS_ZIP = data_source("roads")["zip"]
 
 # inner path mirrors the real OS bundle layout (…/data/GB_GreenspaceSite.shp)
 _INNER_DIR = "OS Open Greenspace (ESRI Shape File) GB/data"
@@ -291,7 +295,7 @@ def test_retail_centres_loads_and_indexes(tmp_path, monkeypatch):
         geometry=[Polygon([(0, 0), (100, 0), (100, 100), (0, 100)]), Polygon([(200, 200), (300, 200), (300, 300)])],
         crs="EPSG:27700",
     )
-    gdf.to_file(tmp_path / build_db.RETAIL_CENTRES_GPKG, driver="GPKG")
+    gdf.to_file(tmp_path / data_source("retail_centres")["gpkg"], driver="GPKG")
 
     try:
         con = duckdb_connector(writeable=True)
@@ -393,11 +397,13 @@ def _write_iod_csv(path: Path) -> None:
 
     from scripts.build_db import IMD_COLUMNS
 
-    # csv.writer quotes fields containing commas (some IoD column names contain a comma)
+    # csv.writer quotes fields containing commas (some IoD column names contain a comma); seven
+    # trailing values cover the seven domain score columns kept in IMD_COLUMNS
+    n_scores = len(IMD_COLUMNS) - 5  # minus spatial_id, lad24cd, lad24nm, imd_score, imd_rank
     rows = [
-        ["E01000001", "E09000001", "City of London", 5.0, 100, *([0.1] * 15)],
-        ["E01000002", "E09000001", "City of London", 15.0, 50, *([0.2] * 15)],
-        ["E01000003", "E09000001", "City of London", 25.0, 10, *([0.3] * 15)],
+        ["E01000001", "E09000001", "City of London", 5.0, 100, *([0.1] * n_scores)],
+        ["E01000002", "E09000001", "City of London", 15.0, 50, *([0.2] * n_scores)],
+        ["E01000003", "E09000001", "City of London", 25.0, 10, *([0.3] * n_scores)],
     ]
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
@@ -405,14 +411,51 @@ def _write_iod_csv(path: Path) -> None:
         writer.writerows(rows)
 
 
-def test_imd_missing_raises(tmp_path, monkeypatch):
+def _write_wimd_ods(path: Path) -> None:
+    # WIMD "Data" sheet: three preamble rows, then headers, then one row per LSOA. Higher score = more
+    # deprived (same convention as the English IoD).
+    wimd = pd.DataFrame(
+        {
+            "LSOA code": ["W01000001", "W01000002", "W01000003"],
+            "LSOA name": ["A", "B", "C"],
+            "Local Authority name": ["Cardiff", "Cardiff", "Swansea"],
+            "WIMD 2025": [10.0, 20.0, 30.0],
+            "Income": [1.0, 2.0, 3.0],
+            "Employment": [1.0, 2.0, 3.0],
+            "Education": [1.0, 2.0, 3.0],
+            "Health": [1.0, 2.0, 3.0],
+            "Community Safety": [1.0, 2.0, 3.0],
+            "Physical Environment": [1.0, 2.0, 3.0],
+            "Access to Services": [1.0, 2.0, 3.0],
+            "Housing": [1.0, 2.0, 3.0],
+        }
+    )
+    wimd.to_excel(path, sheet_name="Data", startrow=3, index=False, engine="odf")
+
+
+def test_imd_england_downloads_when_missing(tmp_path, monkeypatch):
+    # with no cached CSV present, the English loader fetches it via _download (here faked)
     monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
-    with pytest.raises(FileNotFoundError, match="IoD 'File 7' CSV not found"):
-        build_db.load_imd(MagicMock())
+    monkeypatch.setattr(build_db, "_download", lambda url, path: _write_iod_csv(path))
+    monkeypatch.setattr(
+        build_db, "_imd_wales", lambda *a, **k: pd.DataFrame(columns=list(build_db.IMD_COLUMNS.values()))
+    )
+    try:
+        con = duckdb_connector(writeable=True)
+    except duckdb.HTTPException as e:
+        pytest.skip(f"extension download unavailable: {e}")
+    build_db.load_imd(con)
+    assert con.execute("SELECT COUNT(*) FROM imd_scores_pct").fetchone()[0] == 3  # ty:ignore[not-subscriptable]
+    assert (tmp_path / data_source("imd")["csv"]).exists()  # the (faked) download was cached
+    con.close()
 
 
 def test_imd_loads_per_lsoa_percentiles(tmp_path, monkeypatch):
     monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    # isolate the English path; the Welsh merge is covered separately
+    monkeypatch.setattr(
+        build_db, "_imd_wales", lambda *a, **k: pd.DataFrame(columns=list(build_db.IMD_COLUMNS.values()))
+    )
     _write_iod_csv(tmp_path / "File_7_IoD2025_All_Ranks_Scores_Deciles_Population_Denominators.csv")
     try:
         con = duckdb_connector(writeable=True)
@@ -422,6 +465,8 @@ def test_imd_loads_per_lsoa_percentiles(tmp_path, monkeypatch):
     build_db.load_imd(con)
     cols = {d[0] for d in con.execute("SELECT * FROM imd_scores_pct LIMIT 0").description}
     assert {"spatial_id", "imd_rank", "imd_score", "income", "crime"} <= cols
+    # the English sub-domains are dropped (Wales has no equivalent)
+    assert {"idac", "idaop", "cyp", "indoors", "outdoors"}.isdisjoint(cols)
     assert con.execute("SELECT COUNT(*) FROM imd_scores_pct").fetchone()[0] == 3  # ty:ignore[not-subscriptable]
 
     # scores become percentile ranks in (0, 1]; the three distinct imd_scores → 1/3, 2/3, 1
@@ -430,4 +475,28 @@ def test_imd_loads_per_lsoa_percentiles(tmp_path, monkeypatch):
     # imd_rank is passed through unchanged (not percentiled)
     ranks = [r[0] for r in con.execute("SELECT imd_rank FROM imd_scores_pct ORDER BY spatial_id").fetchall()]
     assert ranks == [100, 50, 10]
+    con.close()
+
+
+def test_imd_merges_england_and_wales(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    _write_iod_csv(tmp_path / "File_7_IoD2025_All_Ranks_Scores_Deciles_Population_Denominators.csv")
+    _write_wimd_ods(tmp_path / data_source("wimd")["ods"])
+    try:
+        con = duckdb_connector(writeable=True)
+    except duckdb.HTTPException as e:
+        pytest.skip(f"extension download unavailable: {e}")
+
+    build_db.load_imd(con)
+    # 3 English + 3 Welsh LSOAs, one shared column set
+    assert con.execute("SELECT COUNT(*) FROM imd_scores_pct").fetchone()[0] == 6  # ty:ignore[not-subscriptable]
+    assert con.execute("SELECT COUNT(*) FROM imd_scores_pct WHERE spatial_id LIKE 'W%'").fetchone()[0] == 3  # ty:ignore[not-subscriptable]
+
+    # Welsh percentiles are ranked within Wales (higher score = more deprived); most-deprived → imd_rank 1
+    wales: tuple[float, ...] = con.execute(
+        "SELECT imd_score, imd_rank, bhs FROM imd_scores_pct WHERE spatial_id = 'W01000003'"
+    ).fetchone()
+    assert wales[0] == pytest.approx(1.0)  # highest WIMD score in Wales → top percentile
+    assert wales[1] == 1  # …and rank 1 (most deprived)
+    assert wales[2] == pytest.approx(1.0)  # bhs = mean(Access, Housing) percentile, also highest
     con.close()
