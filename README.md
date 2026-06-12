@@ -25,16 +25,19 @@ DuckDB database. The pipeline:
 3. **Supplementary layers** — `open_greenspace` and `open_roads` are downloaded from the OS
    Downloads API (open data, no API key) and cached as zips (reused unless `--force-download`);
    `poi` is streamed from [Overture Maps](https://overturemaps.org/) places (selected categories)
-   straight into DuckDB via the `overturemaps` reader (no intermediate file). `land_cover` is
-   loaded from a [UKCEH Land Cover Map](https://catalogue.ceh.ac.uk/) vector GeoPackage (licensed
-   — see [Manual downloads](#manual-downloads)). Any of these is skipped with a warning if absent.
+   straight into DuckDB via the `overturemaps` reader (no intermediate file). `land_cover`
+   ([UKCEH Land Cover Map](https://catalogue.ceh.ac.uk/)) and `retail_centres`
+   ([CDRC Retail Centre Boundaries](https://data.cdrc.ac.uk/)) are loaded from licensed
+   GeoPackages (see [Manual downloads](#manual-downloads)). Any of these is skipped with a warning
+   if absent.
 4. **H3 aggregations** — first repairs invalid geometries (`ST_MakeValid`) and builds an
    RTree spatial index on the geometry tables (all `geom` tables except `crime_data`), then
    builds, for each H3 resolution, `crime_counts_h3_{res}` (counts by cell / crime type /
    month), `h3_{res}_{key}_lookup` views (cell → ONS geography), `h3_{res}_{name}_lookup`
-   views (cell → each overlapping greenspace / land-cover polygon or road segment, when
-   present), and `h3_{res}_geogs` (one row per cell with every ONS code plus `greenspace_ids`
-   / `land_cover_ids` / `road_ids` lists).
+   views (cell → each overlapping greenspace / land-cover / road feature), `h3_{res}_retail_centre_lookup`
+   views (cell → nearest retail centre + distance), and `h3_{res}_geogs` (one row per cell:
+   ONS codes + `greenspace_ids` / `land_cover_ids` / `road_ids` lists + `retail_centre_id` /
+   `retail_centre_distance`).
 
 To avoid serving a half-built database, the pipeline writes everything to a
 `<name>.staging.db` file and only promotes it with an atomic swap once every stage has
@@ -74,13 +77,14 @@ build-db --no-replace
 
 ### Manual downloads
 
-Most inputs are fetched automatically. One source is licensed and must be downloaded by hand
-into the data directory (`SAFER_STREETS_DATA_DIR`); the build skips it with a warning if it is
+Most inputs are fetched automatically. Two sources are licensed and must be downloaded by hand
+into the data directory (`SAFER_STREETS_DATA_DIR`); the build skips each with a warning if it is
 not present:
 
 | Dataset | Table | Source | Where to put it |
 | --- | --- | --- | --- |
 | UKCEH Land Cover Map (vector) | `land_cover` | [EIDC catalogue](https://catalogue.ceh.ac.uk/) — requires (free) registration and licence acceptance | the downloaded zip, named as the `LAND_COVER_ZIP` constant in `build_db.py`, placed directly in the data directory (the build reads the `.gpkg` inside it) |
+| CDRC Retail Centre Boundaries | `retail_centres` | [CDRC](https://data.cdrc.ac.uk/) — requires (free) registration | the `Retail_Boundaries_UK.gpkg` GeoPackage (the `RETAIL_CENTRES_GPKG` constant), placed directly in the data directory |
 
 Everything else — the police.uk crime archive, ONS boundaries, OS Open Greenspace, OS Open
 Roads and Overture Maps POI — is open data and fetched automatically by `build-db`.

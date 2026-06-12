@@ -4,8 +4,9 @@ Build the production DuckDB database in one reproducible pass.
 Pipeline stages:
   1. extract.to_database   crime_data table (geometry, BNG)
   2. ons_boundaries.load_all   boundary tables (pfa, lad, msoa, lsoa, oa)
-  3. supplementary layers   OS Open Greenspace + UKCEH Land Cover + OS Open Roads + Overture POI
-  4. transforms.build_all   H3 count tables + geo/overlap lookup tables
+  3. supplementary layers   OS Open Greenspace + UKCEH Land Cover + OS Open Roads
+                            + CDRC Retail Centres + Overture POI
+  4. transforms.build_all   H3 count tables + geo/overlap/nearest lookup tables
 
 The pipeline writes to a ``<name>.staging.db`` file and only promotes it to the live
 database with an atomic ``os.replace`` once every stage has succeeded. Read-only
@@ -52,6 +53,9 @@ ROADS_LAYER = "Data/oproad_gb.gpkg"
 
 LAND_COVER_ZIP = "Download_land+cover+2024_2983803.zip"
 LAND_COVER_LAYER = "*.gpkg"  # there should only be one
+
+# CDRC Retail Centre Boundaries (licensed, https://data.cdrc.ac.uk/) — a single GeoPackage in BNG.
+RETAIL_CENTRES_GPKG = "Retail_Boundaries_UK.gpkg"
 
 # Overture Maps places (POI), streamed from S3 via the overturemaps reader (no API key).
 # England & Wales bounding box in WGS-84 (xmin, ymin, xmax, ymax).
@@ -210,6 +214,39 @@ def load_roads(con: duckdb.DuckDBPyConnection, *, force_download: bool = False) 
     print(f"  open_roads: {row_count:,} rows")
 
 
+def load_retail_centres(con: duckdb.DuckDBPyConnection) -> None:
+    """
+    Create the `retail_centres` table from the CDRC Retail Centre Boundaries GeoPackage.
+
+    Licensed (CDRC), so the GeoPackage is downloaded manually into the data directory. ST_Read
+    yields a `geom` column, so index_geometry_tables RTree-indexes it.
+    """
+    gpkg = data_dir() / RETAIL_CENTRES_GPKG
+    if not gpkg.exists():
+        raise FileNotFoundError(
+            f"CDRC Retail Centre Boundaries GeoPackage not found: {gpkg}\n"
+            f"Download {RETAIL_CENTRES_GPKG} from the CDRC (https://data.cdrc.ac.uk/) and place it in the data directory."
+        )
+
+    print(f"  Loading retail_centres from {gpkg}…")
+    con.execute(f"""
+        CREATE OR REPLACE TABLE retail_centres AS
+        SELECT
+            rc.RC_ID AS rc_id,
+            rc.RC_Name AS rc_name,
+            rc.Classification AS classification,
+            rc.Country AS country,
+            rc.Region_NM AS region_nm,
+            rc.H3_count AS h3_count,
+            rc.Retail_N AS retail_n,
+            rc.Area_km2 AS area_km2,
+            rc.geom AS geom
+        FROM ST_Read('{gpkg}') rc;
+    """)
+    row_count = con.execute("SELECT COUNT(*) FROM retail_centres").fetchone()[0]  # ty:ignore[not-subscriptable]
+    print(f"  retail_centres: {row_count:,} rows")
+
+
 def load_poi(con: duckdb.DuckDBPyConnection) -> None:
     """
     Create the `poi` table from Overture Maps places (points of interest).
@@ -292,7 +329,7 @@ def build(
 
     con = duckdb_connector(staging, writeable=True)
     try:
-        print("\n[3/4] Loading greenspace, land cover, roads, POI…")
+        print("\n[3/4] Loading greenspace, land cover, roads, retail centres, POI…")
         if "open_greenspace" in existing:
             print("  keeping existing open_greenspace")
         else:
@@ -308,6 +345,13 @@ def build(
                 load_land_cover(con)
             except FileNotFoundError as exc:
                 print(f"  Skipping land cover: {exc}")
+        if "retail_centres" in existing:
+            print("  keeping existing retail_centres")
+        else:
+            try:
+                load_retail_centres(con)
+            except FileNotFoundError as exc:
+                print(f"  Skipping retail centres: {exc}")
         if "open_roads" in existing:
             print("  keeping existing open_roads")
         else:

@@ -10,8 +10,9 @@ contains:
 They build, for each H3 resolution:
   - ``crime_counts_h3_{res}``           counts grouped by H3 cell / crime type / month
   - ``h3_{res}_{key}_lookup``           a view mapping each H3 cell to one ONS geography code
-  - ``h3_{res}_{name}_lookup``          a view of every overlapping polygon per cell (greenspace, land cover)
-  - ``h3_{res}_geogs``                  one row per H3 cell with every ONS code (+ overlap-feature id lists)
+  - ``h3_{res}_{name}_lookup``          a view of every overlapping feature per cell (greenspace, land cover, roads)
+  - ``h3_{res}_retail_centre_lookup``   a view of each cell's nearest retail centre (within a radius) + distance
+  - ``h3_{res}_geogs``                  one row per H3 cell: ONS codes + overlap id lists + nearest retail centre
 
 Ported from the ``duckdb-spatial`` prototype notebook (safer-streets-eda).
 """
@@ -72,6 +73,12 @@ _OVERLAP_FEATURES: tuple[_OverlapFeature, ...] = (
         overlap_alias="overlap_length",
     ),
 )
+
+# retail centres (CDRC Retail Centre Boundaries): unlike the overlap layers, each cell is matched
+# to its *nearest* centre within RETAIL_RADIUS metres, folded into h3_geogs as scalar
+# retail_centre_id + retail_centre_distance columns. Absent if the table was not loaded.
+RETAIL_CENTRES_TABLE = "retail_centres"
+RETAIL_RADIUS = 2000  # metres
 
 
 def _create(kind: str, name: str, *, replace: bool) -> str:
@@ -189,6 +196,43 @@ def build_h3_overlap_lookups(
             """)
 
 
+def build_h3_retail_centre_lookups(
+    con: duckdb.DuckDBPyConnection,
+    resolutions: list[int] = H3_RESOLUTIONS,
+    radius: int = RETAIL_RADIUS,
+    *,
+    replace: bool = True,
+) -> None:
+    """Create ``h3_{res}_retail_centre_lookup`` views: each cell's nearest retail centre.
+
+    For every H3 cell the closest retail centre within ``radius`` metres is kept, with its
+    distance; cells with none get NULLs (so there is exactly one row per cell). No-op if the
+    retail_centres table is absent.
+    """
+    if not _table_exists(con, RETAIL_CENTRES_TABLE):
+        return
+    for res in resolutions:
+        con.execute(f"""
+            {_create("VIEW", f"h3_{res}_retail_centre_lookup", replace=replace)} AS
+            WITH cells AS (
+                SELECT
+                    spatial_id,
+                    ST_Transform(
+                        ST_GeomFromText(h3_cell_to_boundary_wkt(spatial_id)),
+                        'EPSG:4326', 'EPSG:27700', always_xy := true
+                    ) AS cell_geom
+                FROM (SELECT DISTINCT spatial_id FROM crime_counts_h3_{res})
+            )
+            SELECT
+                cells.spatial_id,
+                rc.rc_id AS retail_centre_id,
+                ST_Distance(cells.cell_geom, rc.geom) AS distance
+            FROM cells
+            LEFT JOIN {RETAIL_CENTRES_TABLE} rc ON ST_DWithin(cells.cell_geom, rc.geom, {radius})
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY cells.spatial_id ORDER BY distance) = 1;
+        """)
+
+
 def build_h3_geogs(
     con: duckdb.DuckDBPyConnection,
     resolutions: list[int] = H3_RESOLUTIONS,
@@ -202,33 +246,48 @@ def build_h3_geogs(
     Built by LEFT JOINing the per-geography lookup views on ``spatial_id``, starting from
     the broadest-coverage geography so cells outside England & Wales are still retained. For
     each overlap feature whose data is present (greenspace, land cover, road network), a
-    ``{prefix}_ids`` list of overlapping features is added.
+    ``{prefix}_ids`` list of overlapping features is added; when retail centres are present, the
+    nearest centre's ``retail_centre_id`` and ``retail_centre_distance`` are added.
     """
     base = _BASE_KEY if _BASE_KEY in mappings else next(iter(mappings))
     others = [key for key in mappings if key != base]
     present = [f for f in features if _table_exists(con, f.table)]
+    has_retail = _table_exists(con, RETAIL_CENTRES_TABLE)
 
     for res in resolutions:
         select_cols = ", ".join([f"base.{base}", *(f"{key}.{key}" for key in others)])
         joins = "\n".join(f"LEFT JOIN h3_{res}_{key}_lookup {key} USING (spatial_id)" for key in others)
 
-        # fold each many-to-many overlap lookup into a per-cell list, if available
-        ctes = [
-            f"{f.cte} AS (SELECT spatial_id, LIST({f.prefix}_id) AS {f.prefix}_ids "
-            f"FROM h3_{res}_{f.name}_lookup GROUP BY spatial_id)"
-            for f in present
-        ]
+        # collect optional per-cell features: overlap lists, plus the scalar nearest-retail-centre
+        ctes: list[str] = []
+        extra_cols: list[str] = []
+        extra_joins: list[str] = []
+        for f in present:
+            ctes.append(
+                f"{f.cte} AS (SELECT spatial_id, LIST({f.prefix}_id) AS {f.prefix}_ids "
+                f"FROM h3_{res}_{f.name}_lookup GROUP BY spatial_id)"
+            )
+            extra_cols.append(f"{f.cte}.{f.prefix}_ids")
+            extra_joins.append(f"LEFT JOIN {f.cte} USING (spatial_id)")
+        if has_retail:
+            ctes.append(
+                f"rc AS (SELECT spatial_id, retail_centre_id, distance AS retail_centre_distance "
+                f"FROM h3_{res}_retail_centre_lookup)"
+            )
+            extra_cols.extend(["rc.retail_centre_id", "rc.retail_centre_distance"])
+            extra_joins.append("LEFT JOIN rc USING (spatial_id)")
+
         with_clause = ("WITH " + ", ".join(ctes)) if ctes else ""
-        feature_cols = "".join(f", {f.cte}.{f.prefix}_ids" for f in present)
-        feature_joins = "\n".join(f"LEFT JOIN {f.cte} USING (spatial_id)" for f in present)
+        extra_col_sql = "".join(f", {c}" for c in extra_cols)
+        extra_join_sql = "\n".join(extra_joins)
 
         con.execute(f"""
             {_create("TABLE", f"h3_{res}_geogs", replace=replace)} AS
             {with_clause}
-            SELECT base.spatial_id, {select_cols}{feature_cols}
+            SELECT base.spatial_id, {select_cols}{extra_col_sql}
             FROM h3_{res}_{base}_lookup base
             {joins}
-            {feature_joins};
+            {extra_join_sql};
         """)
 
 
@@ -247,4 +306,5 @@ def build_all(
     build_crime_counts_h3(con, resolutions=resolutions, replace=replace)
     build_h3_geo_lookups(con, resolutions=resolutions, mappings=mappings, replace=replace)
     build_h3_overlap_lookups(con, resolutions=resolutions, replace=replace)
+    build_h3_retail_centre_lookups(con, resolutions=resolutions, replace=replace)
     build_h3_geogs(con, resolutions=resolutions, mappings=mappings, replace=replace)

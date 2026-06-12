@@ -198,6 +198,7 @@ def test_no_replace_skips_existing_stages(tmp_path, monkeypatch):
     monkeypatch.setattr(build_db.ons_boundaries, "load_all", lambda **k: calls.append("boundaries"))
     monkeypatch.setattr(build_db, "load_greenspace", lambda *a, **k: calls.append("greenspace"))
     monkeypatch.setattr(build_db, "load_land_cover", lambda *a, **k: calls.append("land_cover"))
+    monkeypatch.setattr(build_db, "load_retail_centres", lambda *a, **k: calls.append("retail_centres"))
     monkeypatch.setattr(build_db, "load_roads", lambda *a, **k: calls.append("roads"))
     monkeypatch.setattr(build_db, "load_poi", lambda *a, **k: calls.append("poi"))
     monkeypatch.setattr(build_db, "index_geometry_tables", lambda con: None)
@@ -206,7 +207,7 @@ def test_no_replace_skips_existing_stages(tmp_path, monkeypatch):
 
     build_db.build(db_path=db_path, replace=False)
 
-    assert calls == ["land_cover", "roads", "poi"]  # the already-present stages were skipped
+    assert calls == ["land_cover", "retail_centres", "roads", "poi"]  # already-present stages skipped
 
 
 def test_extract_cached_extracts_reuses_and_refreshes(tmp_path):
@@ -261,4 +262,44 @@ def test_load_poi_streams_filtered_places(monkeypatch):
     index_geometry_tables(con)
     indexes = {r[0] for r in con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
     assert "poi_geom_rtree" in indexes
+    con.close()
+
+
+def test_retail_centres_missing_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    with pytest.raises(FileNotFoundError, match="Retail Centre Boundaries GeoPackage not found"):
+        build_db.load_retail_centres(MagicMock())
+
+
+def test_retail_centres_loads_and_indexes(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    gdf = gpd.GeoDataFrame(
+        {
+            "RC_ID": ["RC1", "RC2"],
+            "RC_Name": ["Centre A", "Centre B"],
+            "Classification": ["Regional Centre", "Local Centre"],
+            "Country": ["England", "England"],
+            "Region_NM": ["Yorkshire", "Yorkshire"],
+            "H3_count": [10, 3],
+            "Retail_N": [100, 20],
+            "Area_km2": [0.8, 0.2],
+        },
+        geometry=[Polygon([(0, 0), (100, 0), (100, 100), (0, 100)]), Polygon([(200, 200), (300, 200), (300, 300)])],
+        crs="EPSG:27700",
+    )
+    gdf.to_file(tmp_path / build_db.RETAIL_CENTRES_GPKG, driver="GPKG")
+
+    try:
+        con = duckdb_connector(writeable=True)
+    except duckdb.HTTPException as e:
+        pytest.skip(f"extension download unavailable: {e}")
+
+    build_db.load_retail_centres(con)
+    cols = {d[0] for d in con.execute("SELECT * FROM retail_centres LIMIT 0").description}
+    assert {"rc_id", "rc_name", "classification", "geom"} <= cols  # columns lower-cased, geom indexable
+    assert con.execute("SELECT COUNT(*) FROM retail_centres").fetchone()[0] == 2  # ty:ignore[not-subscriptable]
+
+    index_geometry_tables(con)
+    indexes = {r[0] for r in con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
+    assert "retail_centres_geom_rtree" in indexes
     con.close()

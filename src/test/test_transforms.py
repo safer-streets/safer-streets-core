@@ -170,6 +170,33 @@ class TestOverlapFeatures:
         assert dupes == []
 
 
+class TestRetailCentreLookup:
+    def test_nearest_retail_centre_folded_into_geogs(self):
+        con = _make_db()
+        # a retail centre covering the crime cells (BNG) → distance 0, one per cell
+        poly = "POLYGON((-1.6 53.75,-1.5 53.75,-1.5 53.85,-1.6 53.85,-1.6 53.75))"
+        con.execute(f"""
+            CREATE TABLE retail_centres AS
+            SELECT 'RC1' AS rc_id,
+                   ST_Transform(ST_GeomFromText('{poly}'), 'EPSG:4326', 'EPSG:27700', always_xy := true) AS geom;
+        """)
+        transforms.build_all(con, resolutions=[9])
+
+        # scalar nearest-centre columns (not a list)
+        cols = [d[0] for d in con.execute("SELECT * FROM h3_9_geogs LIMIT 0").description]
+        assert {"retail_centre_id", "retail_centre_distance"} <= set(cols)
+        rows = con.execute("SELECT DISTINCT retail_centre_id, retail_centre_distance FROM h3_9_geogs").fetchall()
+        assert rows == [("RC1", 0.0)]
+        dupes = con.execute("SELECT spatial_id, COUNT(*) c FROM h3_9_geogs GROUP BY spatial_id HAVING c > 1").fetchall()
+        assert dupes == []
+
+    def test_skipped_when_table_absent(self):
+        con = _make_db()
+        transforms.build_all(con, resolutions=[9])
+        cols = [d[0] for d in con.execute("SELECT * FROM h3_9_geogs LIMIT 0").description]
+        assert "retail_centre_id" not in cols
+
+
 class TestReplaceFlag:
     def test_replace_true_rebuilds_table(self):
         con = _make_db()
