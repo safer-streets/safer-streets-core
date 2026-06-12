@@ -28,8 +28,10 @@ DuckDB database. The pipeline:
    straight into DuckDB via the `overturemaps` reader (no intermediate file). `land_cover`
    ([UKCEH Land Cover Map](https://catalogue.ceh.ac.uk/)) and `retail_centres`
    ([CDRC Retail Centre Boundaries](https://data.cdrc.ac.uk/)) are loaded from licensed
-   GeoPackages (see [Manual downloads](#manual-downloads)). Any of these is skipped with a warning
-   if absent.
+   GeoPackages, and `schools` from a [GIAS](https://get-information-schools.service.gov.uk/) export
+   (each manually downloaded — see [Manual downloads](#manual-downloads)). `schools` also gets a
+   10-minute walk `isochrone` polygon, computed over the `open_roads` network. Any of these is
+   skipped with a warning if absent.
 4. **H3 aggregations** — first repairs invalid geometries (`ST_MakeValid`) and builds an
    RTree spatial index on the geometry tables (all `geom` tables except `crime_data`), then
    builds, for each H3 resolution, `crime_counts_h3_{res}` (counts by cell / crime type /
@@ -77,14 +79,14 @@ build-db --no-replace
 
 ### Manual downloads
 
-Most inputs are fetched automatically. Two sources are licensed and must be downloaded by hand
-into the data directory (`SAFER_STREETS_DATA_DIR`); the build skips each with a warning if it is
-not present:
+Most inputs are fetched automatically. A few must be downloaded by hand into the data directory
+(`SAFER_STREETS_DATA_DIR`); the build skips each with a warning if it is not present:
 
 | Dataset | Table | Source | Where to put it |
 | --- | --- | --- | --- |
 | UKCEH Land Cover Map (vector) | `land_cover` | [EIDC catalogue](https://catalogue.ceh.ac.uk/) — requires (free) registration and licence acceptance | the downloaded zip, named as the `LAND_COVER_ZIP` constant in `build_db.py`, placed directly in the data directory (the build reads the `.gpkg` inside it) |
 | CDRC Retail Centre Boundaries | `retail_centres` | [CDRC](https://data.cdrc.ac.uk/) — requires (free) registration | the `Retail_Boundaries_UK.gpkg` GeoPackage (the `RETAIL_CENTRES_GPKG` constant), placed directly in the data directory |
+| GIAS schools register | `schools` | [Get Information About Schools](https://get-information-schools.service.gov.uk/) — open, but the download is a dated CSV | the `edubasealldata<date>.csv` (matched by glob), placed directly in the data directory |
 
 Everything else — the police.uk crime archive, ONS boundaries, OS Open Greenspace, OS Open
 Roads and Overture Maps POI — is open data and fetched automatically by `build-db`.

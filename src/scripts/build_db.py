@@ -5,7 +5,7 @@ Pipeline stages:
   1. extract.to_database   crime_data table (geometry, BNG)
   2. ons_boundaries.load_all   boundary tables (pfa, lad, msoa, lsoa, oa)
   3. supplementary layers   OS Open Greenspace + UKCEH Land Cover + OS Open Roads
-                            + CDRC Retail Centres + Overture POI
+                            + CDRC Retail Centres + Overture POI + GIAS schools (walk isochrones)
   4. transforms.build_all   H3 count tables + geo/overlap/nearest lookup tables
 
 The pipeline writes to a ``<name>.staging.db`` file and only promotes it to the live
@@ -23,6 +23,7 @@ from pathlib import Path
 from zipfile import ZipFile
 
 import duckdb
+import pandas as pd
 import requests
 import typer
 from overturemaps import core as overture
@@ -281,6 +282,121 @@ def load_poi(con: duckdb.DuckDBPyConnection) -> None:
     print(f"  poi: {row_count:,} rows")
 
 
+# Schools: GIAS "Get Information About Schools" export (edubasealldata<date>.csv, open data,
+# downloaded manually). Isochrones are 10-minute walk catchments over the open_roads network.
+GIAS_GLOB = "edubasealldata*.csv"
+WALK_TRIP_MINUTES = 10
+WALK_SPEED_KMH = 5
+WALK_RADIUS_M = WALK_TRIP_MINUTES * WALK_SPEED_KMH * 1000 / 60  # reachable network distance, metres
+
+
+def _walk_isochrones(
+    edges: pd.DataFrame,
+    nodes: pd.DataFrame,
+    school_xy: pd.DataFrame,
+    radius: float = WALK_RADIUS_M,
+) -> list:
+    """
+    Return a walk-isochrone geometry per school (aligned with `school_xy`).
+
+    `edges` has start_node/end_node/length (a topological road graph), `nodes` has node/x/y, and
+    `school_xy` has x/y point coordinates (BNG). Each school is snapped to its nearest road node;
+    its isochrone is the convex hull of all nodes reachable within `radius` metres (bounded
+    single-source Dijkstra), or the snap point itself if the node is isolated.
+    """
+    import networkx as nx  # noqa: PLC0415
+    from scipy.spatial import cKDTree  # noqa: PLC0415  # ty:ignore[unresolved-import]
+    from shapely.geometry import MultiPoint, Point  # noqa: PLC0415
+
+    graph = nx.from_pandas_edgelist(edges, "start_node", "end_node", edge_attr="length")
+    coords = dict(zip(nodes.node, zip(nodes.x, nodes.y, strict=True), strict=True))
+
+    # snap each school to the nearest road node (vectorised KDTree query)
+    tree = cKDTree(nodes[["x", "y"]].to_numpy())
+    _, idx = tree.query(school_xy[["x", "y"]].to_numpy())
+    school_nodes = nodes.node.to_numpy()[idx]
+
+    isochrones = []
+    for node in school_nodes:
+        if node not in graph:
+            isochrones.append(Point(coords[node]))
+            continue
+        reached = nx.single_source_dijkstra_path_length(graph, node, cutoff=radius, weight="length")
+        isochrones.append(MultiPoint([coords[n] for n in reached]).convex_hull)
+    return isochrones
+
+
+def load_schools(con: duckdb.DuckDBPyConnection) -> None:
+    """
+    Create the `schools` table from the GIAS export, with a 10-minute walk isochrone per school.
+
+    Open schools with valid coordinates are parsed into a point `geom` (BNG); a walk catchment
+    `isochrone` polygon is then computed over the open_roads network (so this requires open_roads).
+    """
+    matches = sorted(data_dir().glob(GIAS_GLOB))
+    if not matches:
+        raise FileNotFoundError(
+            f"GIAS schools export not found under {data_dir()} (glob {GIAS_GLOB}).\n"
+            "Download 'all establishment data' from https://get-information-schools.service.gov.uk/ "
+            "and place the CSV in the data directory."
+        )
+    if "open_roads" not in {
+        r[0]
+        for r in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()
+    }:
+        raise RuntimeError("schools isochrones require the open_roads table (load roads first)")
+
+    gias = matches[-1]
+    print(f"  Parsing GIAS export {gias}…")
+    con.execute(f"""
+        CREATE OR REPLACE VIEW schools_stg AS
+        WITH base AS (
+            SELECT
+                urn, establishmentnumber, establishmentname,
+                typeofestablishment_code, typeofestablishment_name,
+                establishmentstatus_code, phaseofeducation_code, phaseofeducation_name,
+                statutorylowage, statutoryhighage, schoolcapacity, postcode,
+                urbanrural_code, districtadministrative_code, msoa_code, lsoa_code,
+                ST_Point(easting, northing) AS geom
+            FROM read_csv_auto('{gias}', encoding='CP1252', normalize_names=true)
+            WHERE establishmentstatus_code IN (1, 3) AND easting > 0 AND northing > 0
+        )
+        SELECT * FROM base;
+    """)
+
+    # the road links are already a topological graph (start_node -- end_node, weighted by length)
+    edges = con.sql("SELECT start_node, end_node, length FROM open_roads WHERE length > 0").df()
+    nodes = con.sql("""
+        SELECT DISTINCT ON (node) node, ST_X(pt) AS x, ST_Y(pt) AS y
+        FROM (
+            SELECT start_node AS node, ST_StartPoint(geom) AS pt FROM open_roads
+            UNION ALL
+            SELECT end_node AS node, ST_EndPoint(geom) AS pt FROM open_roads
+        )
+    """).df()
+    school_xy = con.sql("SELECT urn, ST_X(geom) AS x, ST_Y(geom) AS y FROM schools_stg").df()
+
+    print(f"  Computing {len(school_xy):,} school isochrones over {len(nodes):,} road nodes…")
+    isochrones = _walk_isochrones(edges, nodes, school_xy)
+
+    iso_wkt = pd.DataFrame({"urn": school_xy.urn.to_numpy(), "wkt": [g.wkt for g in isochrones]})
+    con.register("schools_iso_tmp", iso_wkt)
+    try:
+        con.execute("""
+            CREATE OR REPLACE TABLE schools AS
+            SELECT
+                s.*,
+                ST_GeomFromText(t.wkt) AS isochrone,
+                ST_Area(ST_GeomFromText(t.wkt)) / 1e6 AS isochrone_area_km2
+            FROM schools_stg s
+            LEFT JOIN schools_iso_tmp t USING (urn);
+        """)
+    finally:
+        con.unregister("schools_iso_tmp")
+    row_count = con.execute("SELECT COUNT(*) FROM schools").fetchone()[0]  # ty:ignore[not-subscriptable]
+    print(f"  schools: {row_count:,} rows")
+
+
 @app.command()
 def build(
     db_path: Path | None = None,
@@ -329,7 +445,7 @@ def build(
 
     con = duckdb_connector(staging, writeable=True)
     try:
-        print("\n[3/4] Loading greenspace, land cover, roads, retail centres, POI…")
+        print("\n[3/4] Loading greenspace, land cover, roads, retail centres, POI, schools…")
         if "open_greenspace" in existing:
             print("  keeping existing open_greenspace")
         else:
@@ -366,6 +482,13 @@ def build(
                 load_poi(con)
             except Exception as exc:  # noqa: BLE001  # Overture S3 read can fail in various ways
                 print(f"  Skipping POI: {exc}")
+        if "schools" in existing:
+            print("  keeping existing schools")
+        else:
+            try:
+                load_schools(con)  # needs open_roads (loaded above) for the isochrone network
+            except (FileNotFoundError, RuntimeError) as exc:
+                print(f"  Skipping schools: {exc}")
 
         print("\n[4/4] Validating geometries, indexing and building H3 aggregations…")
         # repair invalid geometries and add RTree indexes before the spatial joins below

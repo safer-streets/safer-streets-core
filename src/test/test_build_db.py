@@ -5,6 +5,7 @@ from zipfile import ZipFile
 
 import duckdb
 import geopandas as gpd
+import pandas as pd
 import pytest
 from shapely import LineString, Polygon
 
@@ -201,13 +202,14 @@ def test_no_replace_skips_existing_stages(tmp_path, monkeypatch):
     monkeypatch.setattr(build_db, "load_retail_centres", lambda *a, **k: calls.append("retail_centres"))
     monkeypatch.setattr(build_db, "load_roads", lambda *a, **k: calls.append("roads"))
     monkeypatch.setattr(build_db, "load_poi", lambda *a, **k: calls.append("poi"))
+    monkeypatch.setattr(build_db, "load_schools", lambda *a, **k: calls.append("schools"))
     monkeypatch.setattr(build_db, "index_geometry_tables", lambda con: None)
     monkeypatch.setattr(build_db.transforms, "build_all", lambda con, **k: None)
     monkeypatch.setattr(build_db.os, "replace", lambda src, dst: None)
 
     build_db.build(db_path=db_path, replace=False)
 
-    assert calls == ["land_cover", "retail_centres", "roads", "poi"]  # already-present stages skipped
+    assert calls == ["land_cover", "retail_centres", "roads", "poi", "schools"]  # already-present skipped
 
 
 def test_extract_cached_extracts_reuses_and_refreshes(tmp_path):
@@ -302,4 +304,80 @@ def test_retail_centres_loads_and_indexes(tmp_path, monkeypatch):
     index_geometry_tables(con)
     indexes = {r[0] for r in con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
     assert "retail_centres_geom_rtree" in indexes
+    con.close()
+
+
+# --- schools / isochrones ---
+
+_SQUARE_ROADS = """
+    CREATE TABLE open_roads AS SELECT * FROM (VALUES
+        ('A','B',100.0, ST_GeomFromText('LINESTRING(0 0,100 0)')),
+        ('B','C',100.0, ST_GeomFromText('LINESTRING(100 0,100 100)')),
+        ('C','D',100.0, ST_GeomFromText('LINESTRING(100 100,0 100)')),
+        ('D','A',100.0, ST_GeomFromText('LINESTRING(0 100,0 0)'))
+    ) AS t(start_node, end_node, length, geom);
+"""
+
+_GIAS_HEADER = (
+    "urn,establishmentnumber,establishmentname,typeofestablishment_code,typeofestablishment_name,"
+    "establishmentstatus_code,phaseofeducation_code,phaseofeducation_name,statutorylowage,statutoryhighage,"
+    "schoolcapacity,postcode,urbanrural_code,districtadministrative_code,msoa_code,lsoa_code,easting,northing"
+)
+
+
+def _write_gias_csv(path: Path) -> None:
+    rows = [
+        "1,1,School A,1,Community,1,4,Secondary,11,18,500,LS1 1AA,A1,E08000035,E02,E01,10,10",
+        "2,2,Closed School,1,Community,4,4,Secondary,11,18,500,LS1 1AB,A1,E08000035,E02,E01,50,50",  # status 4 → excluded
+    ]
+    path.write_text("\n".join([_GIAS_HEADER, *rows]) + "\n")
+
+
+def test_walk_isochrones_is_convex_hull_of_reachable_nodes():
+    # square graph; a school by node A reaches all four corners within the radius
+    edges = pd.DataFrame({"start_node": ["A", "B", "C", "D"], "end_node": ["B", "C", "D", "A"], "length": [100.0] * 4})
+    nodes = pd.DataFrame({"node": ["A", "B", "C", "D"], "x": [0, 100, 100, 0], "y": [0, 0, 100, 100]})
+    schools = pd.DataFrame({"x": [10.0], "y": [10.0]})
+
+    geoms = build_db._walk_isochrones(edges, nodes, schools, radius=1000)
+    assert len(geoms) == 1
+    assert geoms[0].area == 100 * 100  # convex hull of the four corners
+
+
+def test_schools_missing_gias_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    with pytest.raises(FileNotFoundError, match="GIAS schools export not found"):
+        build_db.load_schools(MagicMock())
+
+
+def test_schools_requires_open_roads(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    _write_gias_csv(tmp_path / "edubasealldata20990101.csv")
+    try:
+        con = duckdb_connector(writeable=True)
+    except duckdb.HTTPException as e:
+        pytest.skip(f"extension download unavailable: {e}")
+    with pytest.raises(RuntimeError, match="require the open_roads table"):
+        build_db.load_schools(con)
+    con.close()
+
+
+def test_schools_builds_isochrones(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    _write_gias_csv(tmp_path / "edubasealldata20990101.csv")
+    try:
+        con = duckdb_connector(writeable=True)
+    except duckdb.HTTPException as e:
+        pytest.skip(f"extension download unavailable: {e}")
+
+    con.execute(_SQUARE_ROADS)
+    build_db.load_schools(con)
+
+    cols = {d[0] for d in con.execute("SELECT * FROM schools LIMIT 0").description}
+    assert {"urn", "geom", "isochrone", "isochrone_area_km2"} <= cols
+    # the closed school (status 4) is filtered out
+    assert con.execute("SELECT COUNT(*) FROM schools").fetchone()[0] == 1  # ty:ignore[not-subscriptable]
+    # the isochrone is a polygon with positive area (the reachable square)
+    assert con.execute("SELECT ST_GeometryType(isochrone) FROM schools").fetchone()[0] == "POLYGON"  # ty:ignore[not-subscriptable]
+    assert con.execute("SELECT isochrone_area_km2 FROM schools").fetchone()[0] > 0  # ty:ignore[not-subscriptable]
     con.close()
