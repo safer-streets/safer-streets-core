@@ -203,7 +203,6 @@ def build(
         print("\n[4/4] Validating geometries, indexing and building H3 aggregations…")
         # repair invalid geometries and add RTree indexes before the spatial joins below
         index_geometry_tables(con)
-        # TODO road intersection. land cover needs some aggregation...
         transforms.build_all(con, resolutions=resolutions, replace=replace)
     finally:
         con.close()

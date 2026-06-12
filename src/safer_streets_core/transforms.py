@@ -38,21 +38,39 @@ _BASE_KEY = "lad24"
 
 @dataclass(frozen=True)
 class _OverlapFeature:
-    """A many-to-many polygon layer overlapped per H3 cell and folded into h3_geogs as a list."""
+    """A many-to-many geometry layer overlapped per H3 cell and folded into h3_geogs as a list."""
 
-    table: str  # source polygon table (may be absent → feature skipped)
-    name: str  # view name h3_{res}_{name}_lookup, and the {name}_ids list column
+    table: str  # source table with a `geom` column (may be absent → feature skipped)
+    name: str  # view name h3_{res}_{name}_lookup
     id_col: str  # id column in the source table
     extra_col: str  # an extra descriptive column carried in the lookup view
     extra_alias: str  # alias for that extra column in the lookup view
     cte: str  # short CTE alias used when folding the list into h3_geogs
+    id_alias: str = ""  # prefix for the {prefix}_id / {prefix}_ids columns (defaults to `name`)
+    overlap_fn: str = "ST_Area"  # ST_Area for polygons, ST_Length for line layers (e.g. roads)
+    overlap_alias: str = "overlap_area"  # name of the overlap-measure column in the lookup view
+
+    @property
+    def prefix(self) -> str:
+        return self.id_alias or self.name
 
 
-# optional polygon layers folded into h3_geogs, each skipped if its table is absent.
-# loaded by build_db: open_greenspace (OS Open Greenspace), land_cover (UKCEH Land Cover Map).
+# optional geometry layers folded into h3_geogs, each skipped if its table is absent. Loaded by
+# build_db: open_greenspace (OS Open Greenspace), land_cover (UKCEH LCM), road_network (OS Open Roads).
 _OVERLAP_FEATURES: tuple[_OverlapFeature, ...] = (
     _OverlapFeature("open_greenspace", "greenspace", "id", "function", "function", "gs"),
     _OverlapFeature("land_cover", "land_cover", "gid", "_mode", "mode", "lc"),
+    _OverlapFeature(
+        "open_roads",
+        "road_network",
+        "id",
+        "road_function",
+        "type",
+        "rn",
+        id_alias="road",
+        overlap_fn="ST_Length",
+        overlap_alias="overlap_length",
+    ),
 )
 
 
@@ -143,9 +161,9 @@ def build_h3_overlap_lookups(
 ) -> None:
     """Create ``h3_{res}_{name}_lookup`` views: one row per (H3 cell, overlapping polygon).
 
-    Unlike the single-code geography lookups, a cell keeps *every* polygon it intersects, with
-    the overlap area. Each feature is skipped if its source table is absent (e.g. the greenspace
-    or land-cover load was skipped).
+    Unlike the single-code geography lookups, a cell keeps *every* feature it intersects, with
+    the overlap measure (area for polygons, length for line layers). Each feature is skipped if
+    its source table is absent (e.g. the greenspace, land-cover or road load was skipped).
     """
     for f in features:
         if not _table_exists(con, f.table):
@@ -155,9 +173,9 @@ def build_h3_overlap_lookups(
                 {_create("VIEW", f"h3_{res}_{f.name}_lookup", replace=replace)} AS
                 SELECT
                     c.spatial_id,
-                    s.{f.id_col} AS {f.name}_id,
+                    s.{f.id_col} AS {f.prefix}_id,
                     s.{f.extra_col} AS {f.extra_alias},
-                    ST_Area(ST_Intersection(c.cell_geom, s.geom)) AS overlap_area
+                    {f.overlap_fn}(ST_Intersection(c.cell_geom, s.geom)) AS {f.overlap_alias}
                 FROM (
                     SELECT DISTINCT
                         spatial_id,
@@ -183,8 +201,8 @@ def build_h3_geogs(
 
     Built by LEFT JOINing the per-geography lookup views on ``spatial_id``, starting from
     the broadest-coverage geography so cells outside England & Wales are still retained. For
-    each overlap feature whose data is present (greenspace, land cover), a ``{name}_ids`` list
-    of overlapping polygons is added.
+    each overlap feature whose data is present (greenspace, land cover, road network), a
+    ``{prefix}_ids`` list of overlapping features is added.
     """
     base = _BASE_KEY if _BASE_KEY in mappings else next(iter(mappings))
     others = [key for key in mappings if key != base]
@@ -196,12 +214,12 @@ def build_h3_geogs(
 
         # fold each many-to-many overlap lookup into a per-cell list, if available
         ctes = [
-            f"{f.cte} AS (SELECT spatial_id, LIST({f.name}_id) AS {f.name}_ids "
+            f"{f.cte} AS (SELECT spatial_id, LIST({f.prefix}_id) AS {f.prefix}_ids "
             f"FROM h3_{res}_{f.name}_lookup GROUP BY spatial_id)"
             for f in present
         ]
         with_clause = ("WITH " + ", ".join(ctes)) if ctes else ""
-        feature_cols = "".join(f", {f.cte}.{f.name}_ids" for f in present)
+        feature_cols = "".join(f", {f.cte}.{f.prefix}_ids" for f in present)
         feature_joins = "\n".join(f"LEFT JOIN {f.cte} USING (spatial_id)" for f in present)
 
         con.execute(f"""

@@ -137,14 +137,35 @@ class TestOverlapFeatures:
         ids = con.execute("SELECT DISTINCT land_cover_ids FROM h3_9_geogs").fetchall()
         assert ids == [([42],)]
 
-    def test_both_features_folded_and_no_duplicate_cells(self):
+    def test_road_network_uses_length_and_road_prefix(self):
+        con = _make_db()
+        # road_network mirrors OS Open Roads (id, road_function); lines → ST_Length overlap.
+        # this diagonal passes through the crime cluster (at lon -1.549 the line is at lat 53.801)
+        line = "LINESTRING(-1.6 53.75, -1.5 53.85)"
+        con.execute(f"""
+            CREATE TABLE open_roads AS
+            SELECT 'R1' AS id, 'Local Road' AS road_function,
+                   ST_Transform(ST_GeomFromText('{line}'), 'EPSG:4326', 'EPSG:27700', always_xy := true) AS geom;
+        """)
+        transforms.build_all(con, resolutions=[9])
+
+        # the lookup carries a road_ prefix and an overlap_length (not overlap_area)
+        cols = {d[0] for d in con.execute("SELECT * FROM h3_9_road_network_lookup LIMIT 0").description}
+        assert cols == {"spatial_id", "road_id", "type", "overlap_length"}
+        # road_ids list is folded into geogs for the cells the line crosses
+        geog_cols = [d[0] for d in con.execute("SELECT * FROM h3_9_geogs LIMIT 0").description]
+        assert "road_ids" in geog_cols
+        assert con.execute("SELECT COUNT(*) FROM h3_9_geogs WHERE road_ids IS NOT NULL").fetchone()[0] > 0  # ty:ignore[not-subscriptable]
+
+    def test_all_features_folded_and_no_duplicate_cells(self):
         con = _make_db()
         self._add_polygon_table(con, "open_greenspace", "'GS1' AS id, 'Play Space' AS function")
         self._add_polygon_table(con, "land_cover", "42 AS gid, 20 AS _mode")
+        self._add_polygon_table(con, "open_roads", "'R1' AS id, 'Local Road' AS road_function")
         transforms.build_all(con, resolutions=[9])
 
         cols = [d[0] for d in con.execute("SELECT * FROM h3_9_geogs LIMIT 0").description]
-        assert {"greenspace_ids", "land_cover_ids"} <= set(cols)
+        assert {"greenspace_ids", "land_cover_ids", "road_ids"} <= set(cols)
         dupes = con.execute("SELECT spatial_id, COUNT(*) c FROM h3_9_geogs GROUP BY spatial_id HAVING c > 1").fetchall()
         assert dupes == []
 

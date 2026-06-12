@@ -6,11 +6,18 @@ from zipfile import ZipFile
 import duckdb
 import geopandas as gpd
 import pytest
-from shapely import Polygon
+from shapely import LineString, Polygon
 
 from safer_streets_core.database import duckdb_connector, index_geometry_tables
 from scripts import build_db
-from scripts.build_db import GREENSPACE_ZIP, load_greenspace, load_land_cover
+from scripts.build_db import (
+    GREENSPACE_ZIP,
+    LAND_COVER_ZIP,
+    ROADS_ZIP,
+    load_greenspace,
+    load_land_cover,
+    load_roads,
+)
 
 # inner path mirrors the real OS bundle layout (…/data/GB_GreenspaceSite.shp)
 _INNER_DIR = "OS Open Greenspace (ESRI Shape File) GB/data"
@@ -70,11 +77,11 @@ def test_downloads_when_zip_missing(tmp_path, monkeypatch):
     # stand in for the network download: materialise the cached zip when invoked
     called = {"n": 0}
 
-    def fake_download(zip_path: Path) -> None:
+    def fake_download(url: str, zip_path: Path) -> None:
         called["n"] += 1
         _make_greenspace_zip(zip_path)
 
-    monkeypatch.setattr(build_db, "_download_greenspace", fake_download)
+    monkeypatch.setattr(build_db, "_download", fake_download)
 
     try:
         con = duckdb_connector(writeable=True)
@@ -87,22 +94,13 @@ def test_downloads_when_zip_missing(tmp_path, monkeypatch):
     con.close()
 
 
-def _write_land_cover_gpkg(directory: Path) -> Path:
-    """Write a tiny BNG GeoPackage mirroring the UKCEH LCM schema (gid, _mode)."""
-    gdf = gpd.GeoDataFrame(
-        {"gid": [1, 2], "_mode": [20, 21]},  # 20 = urban, 21 = suburban
-        geometry=[
-            Polygon([(0, 0), (100, 0), (100, 100), (0, 100)]),
-            Polygon([(200, 200), (300, 200), (300, 300), (200, 300)]),
-        ],
-        crs="EPSG:27700",
-    )
-    # mirror the order-specific nested layout matched by LAND_COVER_GLOB
-    nested = directory / "lcm-2024-vec_test"
-    nested.mkdir()
-    gpkg = nested / "lcm-2024-vec_test.gpkg"
-    gdf.to_file(gpkg, driver="GPKG")
-    return gpkg
+def _gpkg_in_zip(zip_path: Path, gdf: gpd.GeoDataFrame, arcname: str, *, layer: str | None = None) -> None:
+    """Write `gdf` to a GeoPackage and pack it into a zip at `arcname` (mirrors the real bundles)."""
+    with tempfile.TemporaryDirectory() as td:
+        gpkg = Path(td) / "data.gpkg"
+        gdf.to_file(gpkg, driver="GPKG", layer=layer) if layer else gdf.to_file(gpkg, driver="GPKG")
+        with ZipFile(zip_path, "w") as z:
+            z.write(gpkg, arcname=arcname)
 
 
 def test_land_cover_missing_raises(tmp_path, monkeypatch):
@@ -113,7 +111,12 @@ def test_land_cover_missing_raises(tmp_path, monkeypatch):
 
 def test_land_cover_loads_and_indexes(tmp_path, monkeypatch):
     monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
-    _write_land_cover_gpkg(tmp_path)
+    gdf = gpd.GeoDataFrame(
+        {"gid": [1, 2], "_mode": [20, 21]},  # 20 = urban, 21 = suburban
+        geometry=[Polygon([(0, 0), (100, 0), (100, 100), (0, 100)]), Polygon([(200, 200), (300, 200), (300, 300)])],
+        crs="EPSG:27700",
+    )
+    _gpkg_in_zip(tmp_path / LAND_COVER_ZIP, gdf, "lcm-2024.gpkg")
 
     try:
         con = duckdb_connector(writeable=True)
@@ -128,4 +131,30 @@ def test_land_cover_loads_and_indexes(tmp_path, monkeypatch):
     index_geometry_tables(con)
     indexes = {r[0] for r in con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
     assert "land_cover_geom_rtree" in indexes
+    con.close()
+
+
+def test_roads_loads_road_link_layer(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    gdf = gpd.GeoDataFrame(
+        {"id": ["R1", "R2"], "road_function": ["Local Road", "A Road"]},
+        geometry=[LineString([(0, 0), (100, 100)]), LineString([(0, 100), (100, 0)])],
+        crs="EPSG:27700",
+    )
+    # mirror the real bundle: a gpkg at Data/oproad_gb.gpkg with a 'road_link' layer
+    _gpkg_in_zip(tmp_path / ROADS_ZIP, gdf, "Data/oproad_gb.gpkg", layer="road_link")
+
+    try:
+        con = duckdb_connector(writeable=True)
+    except duckdb.HTTPException as e:
+        pytest.skip(f"extension download unavailable: {e}")
+
+    load_roads(con)  # zip cached → no download
+    cols = [d[0] for d in con.execute("SELECT * FROM open_roads LIMIT 0").description]
+    assert {"id", "road_function", "geom"} <= set(cols)  # geom column → gets RTree-indexed
+    assert con.execute("SELECT COUNT(*) FROM open_roads").fetchone()[0] == 2  # ty:ignore[not-subscriptable]
+
+    index_geometry_tables(con)
+    indexes = {r[0] for r in con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
+    assert "open_roads_geom_rtree" in indexes
     con.close()
