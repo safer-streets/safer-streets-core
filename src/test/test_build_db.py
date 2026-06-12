@@ -203,13 +203,15 @@ def test_no_replace_skips_existing_stages(tmp_path, monkeypatch):
     monkeypatch.setattr(build_db, "load_roads", lambda *a, **k: calls.append("roads"))
     monkeypatch.setattr(build_db, "load_poi", lambda *a, **k: calls.append("poi"))
     monkeypatch.setattr(build_db, "load_schools", lambda *a, **k: calls.append("schools"))
+    monkeypatch.setattr(build_db, "load_imd", lambda *a, **k: calls.append("imd"))
     monkeypatch.setattr(build_db, "index_geometry_tables", lambda con: None)
     monkeypatch.setattr(build_db.transforms, "build_all", lambda con, **k: None)
     monkeypatch.setattr(build_db.os, "replace", lambda src, dst: None)
 
     build_db.build(db_path=db_path, replace=False)
 
-    assert calls == ["land_cover", "retail_centres", "roads", "poi", "schools"]  # already-present skipped
+    # already-present stages (crime, boundaries, greenspace) are skipped; the rest run in order
+    assert calls == ["land_cover", "retail_centres", "roads", "poi", "schools", "imd"]
 
 
 def test_extract_cached_extracts_reuses_and_refreshes(tmp_path):
@@ -380,4 +382,52 @@ def test_schools_builds_isochrones(tmp_path, monkeypatch):
     # the isochrone is a polygon with positive area (the reachable square)
     assert con.execute("SELECT ST_GeometryType(isochrone) FROM schools").fetchone()[0] == "POLYGON"  # ty:ignore[not-subscriptable]
     assert con.execute("SELECT isochrone_area_km2 FROM schools").fetchone()[0] > 0  # ty:ignore[not-subscriptable]
+    con.close()
+
+
+# --- IMD (English Indices of Deprivation) ---
+
+
+def _write_iod_csv(path: Path) -> None:
+    import csv
+
+    from scripts.build_db import IMD_COLUMNS
+
+    # csv.writer quotes fields containing commas (some IoD column names contain a comma)
+    rows = [
+        ["E01000001", "E09000001", "City of London", 5.0, 100, *([0.1] * 15)],
+        ["E01000002", "E09000001", "City of London", 15.0, 50, *([0.2] * 15)],
+        ["E01000003", "E09000001", "City of London", 25.0, 10, *([0.3] * 15)],
+    ]
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(list(IMD_COLUMNS))  # original long IoD column names
+        writer.writerows(rows)
+
+
+def test_imd_missing_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    with pytest.raises(FileNotFoundError, match="IoD 'File 7' CSV not found"):
+        build_db.load_imd(MagicMock())
+
+
+def test_imd_loads_per_lsoa_percentiles(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    _write_iod_csv(tmp_path / "File_7_IoD2025_All_Ranks_Scores_Deciles_Population_Denominators.csv")
+    try:
+        con = duckdb_connector(writeable=True)
+    except duckdb.HTTPException as e:
+        pytest.skip(f"extension download unavailable: {e}")
+
+    build_db.load_imd(con)
+    cols = {d[0] for d in con.execute("SELECT * FROM imd_scores_pct LIMIT 0").description}
+    assert {"spatial_id", "imd_rank", "imd_score", "income", "crime"} <= cols
+    assert con.execute("SELECT COUNT(*) FROM imd_scores_pct").fetchone()[0] == 3  # ty:ignore[not-subscriptable]
+
+    # scores become percentile ranks in (0, 1]; the three distinct imd_scores → 1/3, 2/3, 1
+    scores = [r[0] for r in con.execute("SELECT imd_score FROM imd_scores_pct ORDER BY spatial_id").fetchall()]
+    assert scores == pytest.approx([1 / 3, 2 / 3, 1.0])
+    # imd_rank is passed through unchanged (not percentiled)
+    ranks = [r[0] for r in con.execute("SELECT imd_rank FROM imd_scores_pct ORDER BY spatial_id").fetchall()]
+    assert ranks == [100, 50, 10]
     con.close()

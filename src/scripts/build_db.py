@@ -4,8 +4,8 @@ Build the production DuckDB database in one reproducible pass.
 Pipeline stages:
   1. extract.to_database   crime_data table (geometry, BNG)
   2. ons_boundaries.load_all   boundary tables (pfa, lad, msoa, lsoa, oa)
-  3. supplementary layers   OS Open Greenspace + UKCEH Land Cover + OS Open Roads
-                            + CDRC Retail Centres + Overture POI + GIAS schools (walk isochrones)
+  3. supplementary layers   OS Open Greenspace + UKCEH Land Cover + OS Open Roads + CDRC Retail
+                            Centres + Overture POI + GIAS schools (walk isochrones) + English IoD
   4. transforms.build_all   H3 count tables + geo/overlap/nearest lookup tables
 
 The pipeline writes to a ``<name>.staging.db`` file and only promotes it to the live
@@ -57,6 +57,34 @@ LAND_COVER_LAYER = "*.gpkg"  # there should only be one
 
 # CDRC Retail Centre Boundaries (licensed, https://data.cdrc.ac.uk/) — a single GeoPackage in BNG.
 RETAIL_CENTRES_GPKG = "Retail_Boundaries_UK.gpkg"
+
+# English Indices of Deprivation (IoD) "File 7" CSV (open data, manually downloaded). Scores are
+# converted to per-LSOA percentiles; Welsh LSOAs are not covered (WIMD is a separate dataset).
+IMD_CSV_GLOB = "File_7_IoD*All_Ranks_Scores_Deciles*.csv"
+# original IoD column name -> short name; everything except IMD_PASSTHROUGH is percentile-ranked
+IMD_COLUMNS = {
+    "LSOA code (2021)": "spatial_id",
+    "Local Authority District code (2024)": "lad24cd",
+    "Local Authority District name (2024)": "lad24nm",
+    "Index of Multiple Deprivation (IMD) Score": "imd_score",
+    "Index of Multiple Deprivation (IMD) Rank (where 1 is most deprived)": "imd_rank",
+    "Income Score (rate)": "income",
+    "Employment Score (rate)": "employment",
+    "Education, Skills and Training Score": "est",
+    "Health Deprivation and Disability Score": "hdd",
+    "Crime Score": "crime",
+    "Barriers to Housing and Services Score": "bhs",
+    "Living Environment Score": "le",
+    "Income Deprivation Affecting Children Index (IDACI) Score (rate)": "idac",
+    "Income Deprivation Affecting Older People (IDAOPI) Score (rate)": "idaop",
+    "Children and Young People Sub-domain Score": "cyp",
+    "Adult Skills Sub-domain Score": "as",
+    "Geographical Barriers Sub-domain Score": "gb",
+    "Wider Barriers Sub-domain Score": "wb",
+    "Indoors Sub-domain Score": "indoors",
+    "Outdoors Sub-domain Score": "outdoors",
+}
+IMD_PASSTHROUGH = ("spatial_id", "lad24cd", "lad24nm", "imd_rank")
 
 # Overture Maps places (POI), streamed from S3 via the overturemaps reader (no API key).
 # England & Wales bounding box in WGS-84 (xmin, ymin, xmax, ymax).
@@ -397,6 +425,37 @@ def load_schools(con: duckdb.DuckDBPyConnection) -> None:
     print(f"  schools: {row_count:,} rows")
 
 
+def load_imd(con: duckdb.DuckDBPyConnection) -> None:
+    """
+    Create the `imd_scores_pct` table: English IoD scores converted to per-LSOA percentiles.
+
+    The IoD "File 7" CSV is parsed, the columns of interest are renamed, and every score column
+    (all except IMD_PASSTHROUGH) is replaced by its percentile rank (0–1, higher = more deprived).
+    Keyed by `spatial_id` (the LSOA21 code), so consumers join it to the lsoa geography. England
+    only — Welsh LSOAs are not covered.
+    """
+    matches = sorted(data_dir().glob(IMD_CSV_GLOB))
+    if not matches:
+        raise FileNotFoundError(
+            f"English IoD 'File 7' CSV not found under {data_dir()} (glob {IMD_CSV_GLOB}).\n"
+            "Download it from https://www.gov.uk/government/statistics/english-indices-of-deprivation-2025 "
+            "and place the CSV in the data directory."
+        )
+
+    imd = pd.read_csv(matches[-1])[list(IMD_COLUMNS)].rename(columns=IMD_COLUMNS)
+    for column in imd.columns:
+        if column not in IMD_PASSTHROUGH:
+            imd[column] = imd[column].rank(pct=True)
+
+    con.register("imd_scores_pct_stg", imd)
+    try:
+        con.execute("CREATE OR REPLACE TABLE imd_scores_pct AS SELECT * FROM imd_scores_pct_stg;")
+    finally:
+        con.unregister("imd_scores_pct_stg")
+    row_count = con.execute("SELECT COUNT(*) FROM imd_scores_pct").fetchone()[0]  # ty:ignore[not-subscriptable]
+    print(f"  imd_scores_pct: {row_count:,} rows")
+
+
 @app.command()
 def build(
     db_path: Path | None = None,
@@ -445,7 +504,7 @@ def build(
 
     con = duckdb_connector(staging, writeable=True)
     try:
-        print("\n[3/4] Loading greenspace, land cover, roads, retail centres, POI, schools…")
+        print("\n[3/4] Loading greenspace, land cover, roads, retail centres, POI, schools, IMD…")
         if "open_greenspace" in existing:
             print("  keeping existing open_greenspace")
         else:
@@ -489,6 +548,13 @@ def build(
                 load_schools(con)  # needs open_roads (loaded above) for the isochrone network
             except (FileNotFoundError, RuntimeError) as exc:
                 print(f"  Skipping schools: {exc}")
+        if "imd_scores_pct" in existing:
+            print("  keeping existing imd_scores_pct")
+        else:
+            try:
+                load_imd(con)
+            except FileNotFoundError as exc:
+                print(f"  Skipping IMD: {exc}")
 
         print("\n[4/4] Validating geometries, indexing and building H3 aggregations…")
         # repair invalid geometries and add RTree indexes before the spatial joins below
