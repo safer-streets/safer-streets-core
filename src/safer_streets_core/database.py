@@ -119,9 +119,11 @@ def index_geometry_tables(
         (row[0], row[1])
         for row in con.execute(
             """
-            SELECT table_name, data_type FROM information_schema.columns
-            WHERE column_name = 'geom' AND table_schema = 'main'
-            ORDER BY table_name
+            SELECT c.table_name, c.data_type
+            FROM information_schema.columns c
+            JOIN information_schema.tables t USING (table_catalog, table_schema, table_name)
+            WHERE c.column_name = 'geom' AND c.table_schema = 'main' AND t.table_type = 'BASE TABLE'
+            ORDER BY c.table_name
             """
         ).fetchall()
         if row[0] not in exclude

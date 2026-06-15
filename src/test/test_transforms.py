@@ -76,13 +76,13 @@ class TestBuildH3Geogs:
         transforms.build_all(con, resolutions=[9])
 
         cols = [d[0] for d in con.execute("SELECT * FROM h3_9_geogs LIMIT 0").description]
-        assert set(cols) == {"spatial_id", "pfa23", "lad24", "msoa21", "lsoa21", "oa21"}
+        assert set(cols) == {"spatial_id", "pfa23cd", "lad24cd", "msoa21cd", "lsoa21cd", "oa21cd"}
 
         dupes = con.execute("SELECT spatial_id, COUNT(*) c FROM h3_9_geogs GROUP BY spatial_id HAVING c > 1").fetchall()
         assert dupes == []
 
         # every cell resolves to the (single) boundary code we created
-        assert con.execute("SELECT COUNT(*) FROM h3_9_geogs WHERE lad24 = 'E08000035'").fetchone()[0] > 0  # ty:ignore[not-subscriptable]
+        assert con.execute("SELECT COUNT(*) FROM h3_9_geogs WHERE lad24cd = 'E08000035'").fetchone()[0] > 0  # ty:ignore[not-subscriptable]
 
 
 class TestGreenspaceLookup:

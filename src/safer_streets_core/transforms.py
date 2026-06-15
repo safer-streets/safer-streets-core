@@ -26,11 +26,11 @@ H3_RESOLUTIONS = [8, 9, 10]
 # short code -> boundary table name (the tables created by ons_boundaries.load_all).
 # lad24 is listed for full-UK coverage; it is used as the base for h3_*_geogs.
 GEOGRAPHY_MAPPINGS = {
-    "pfa23": "police_force_areas",
-    "lad24": "local_authority_districts",
-    "msoa21": "msoa_2021",
-    "lsoa21": "lsoa_2021",
-    "oa21": "output_areas_2021",
+    "pfa23cd": "police_force_areas",
+    "lad24cd": "local_authority_districts",
+    "msoa21cd": "msoa_2021",
+    "lsoa21cd": "lsoa_2021",
+    "oa21cd": "output_areas_2021",
 }
 
 # the geography used as the base table for h3_*_geogs (broadest coverage: incl. NI/Scotland)

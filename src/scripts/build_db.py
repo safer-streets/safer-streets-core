@@ -19,6 +19,7 @@ pass --db-path to override.
 
 import os
 import shutil
+from datetime import date, timedelta
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -245,7 +246,9 @@ def load_retail_centres(con: duckdb.DuckDBPyConnection) -> None:
     Create the `retail_centres` table from the GeoDS Retail Centre Boundaries GeoPackage.
 
     Licensed (Geographic Data Service), so the GeoPackage is downloaded manually into the data
-    directory. ST_Read yields a `geom` column, so index_geometry_tables RTree-indexes it.
+    directory. Unlike the other geometry sources this is supplied in WGS-84 (EPSG:4326), so the
+    geometry is reprojected to BNG (EPSG:27700) on load to match the rest of the database (the H3
+    nearest-centre lookup measures distances in metres). index_geometry_tables RTree-indexes `geom`.
     """
     gpkg_name = data_source("retail_centres")["gpkg"]
     gpkg = data_dir() / gpkg_name
@@ -267,7 +270,7 @@ def load_retail_centres(con: duckdb.DuckDBPyConnection) -> None:
             rc.H3_count AS h3_count,
             rc.Retail_N AS retail_n,
             rc.Area_km2 AS area_km2,
-            rc.geom AS geom
+            ST_Transform(rc.geom, 'EPSG:4326', 'EPSG:27700', always_xy := true) AS geom
         FROM ST_Read('{gpkg}') rc;
     """)
     row_count = con.execute("SELECT COUNT(*) FROM retail_centres").fetchone()[0]  # ty:ignore[not-subscriptable]
@@ -351,31 +354,54 @@ def _walk_isochrones(
     return isochrones
 
 
-def load_schools(con: duckdb.DuckDBPyConnection) -> None:
+def _download_gias(*, force_download: bool = False) -> Path:
+    """Return a local path to the GIAS 'all establishment data' CSV, downloading it if needed.
+
+    The export is published daily at a {date}-stamped (YYYYMMDD) URL. Unless force_download is set,
+    a cached copy (glob ``edubasealldata*.csv``) is reused; otherwise today's file is fetched, falling
+    back to yesterday's if today's has not been published yet.
+    """
+    src = data_source("schools")
+    matches = sorted(data_dir().glob(src["glob"]))
+    if matches and not force_download:
+        print(f"  Using cached {matches[-1]}")
+        return matches[-1]
+
+    for day in (date.today(), date.today() - timedelta(days=1)):
+        stamp = day.strftime("%Y%m%d")
+        csv_path = data_dir() / src["csv"].format(date=stamp)
+        try:
+            _download(src["url"].format(date=stamp), csv_path)
+            return csv_path
+        except requests.RequestException as exc:
+            print(f"  GIAS export for {stamp} unavailable ({exc}); trying previous day…")
+            csv_path.unlink(missing_ok=True)
+    raise FileNotFoundError(
+        f"Could not download the GIAS schools export from {src['url'].format(date='<date>')}.\n"
+        "Check connectivity, or download 'Establishment fields CSV' from "
+        "https://get-information-schools.service.gov.uk/Downloads and place it in the data directory."
+    )
+
+
+def load_schools(con: duckdb.DuckDBPyConnection, *, force_download: bool = False) -> None:
     """
     Create the `schools` table from the GIAS export, with a 10-minute walk isochrone per school.
 
-    Open schools with valid coordinates are parsed into a point `geom` (BNG); a walk catchment
-    `isochrone` polygon is then computed over the open_roads network (so this requires open_roads).
+    Open schools with valid coordinates are parsed into a point `geom` (BNG) plus `h3_{8..11}_id`
+    cell ids (the GIAS export has no lat/lon, so these are derived by transforming geom back to
+    WGS-84); a walk catchment `isochrone` polygon is then computed over the open_roads network (so
+    this requires open_roads). The GIAS export is downloaded automatically (cached unless force_download).
     """
-    glob = data_source("schools")["glob"]
-    matches = sorted(data_dir().glob(glob))
-    if not matches:
-        raise FileNotFoundError(
-            f"GIAS schools export not found under {data_dir()} (glob {glob}).\n"
-            "Download 'all establishment data' from https://get-information-schools.service.gov.uk/ "
-            "and place the CSV in the data directory."
-        )
+    gias = _download_gias(force_download=force_download)
     if "open_roads" not in {
         r[0]
         for r in con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()
     }:
         raise RuntimeError("schools isochrones require the open_roads table (load roads first)")
 
-    gias = matches[-1]
     print(f"  Parsing GIAS export {gias}…")
     con.execute(f"""
-        CREATE OR REPLACE VIEW schools_stg AS
+        CREATE OR REPLACE TEMP VIEW schools_stg AS
         WITH base AS (
             SELECT
                 urn, establishmentnumber, establishmentname,
@@ -386,8 +412,20 @@ def load_schools(con: duckdb.DuckDBPyConnection) -> None:
                 ST_Point(easting, northing) AS geom
             FROM read_csv_auto('{gias}', encoding='CP1252', normalize_names=true)
             WHERE establishmentstatus_code IN (1, 3) AND easting > 0 AND northing > 0
+        ),
+        pts AS (
+            SELECT
+                *,
+                ST_Transform(geom, 'EPSG:27700', 'EPSG:4326', always_xy := true) AS pt
+            FROM base
         )
-        SELECT * FROM base;
+        SELECT
+            * EXCLUDE pt,
+            lower(hex(h3_latlng_to_cell(ST_Y(pt), ST_X(pt), 8)))  AS h3_8_id,
+            lower(hex(h3_latlng_to_cell(ST_Y(pt), ST_X(pt), 9)))  AS h3_9_id,
+            lower(hex(h3_latlng_to_cell(ST_Y(pt), ST_X(pt), 10))) AS h3_10_id,
+            lower(hex(h3_latlng_to_cell(ST_Y(pt), ST_X(pt), 11))) AS h3_11_id
+        FROM pts;
     """)
 
     # the road links are already a topological graph (start_node -- end_node, weighted by length)
@@ -609,7 +647,7 @@ def build(
             print("  keeping existing schools")
         else:
             try:
-                load_schools(con)  # needs open_roads (loaded above) for the isochrone network
+                load_schools(con, force_download=force_download)  # needs open_roads (above) for the isochrone network
             except (FileNotFoundError, RuntimeError) as exc:
                 print(f"  Skipping schools: {exc}")
         if "imd_scores_pct" in existing:

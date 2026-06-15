@@ -66,12 +66,14 @@
     "note": "UKCEH Land Cover Map vector GeoPackage. Licensed (EIDC) so manually downloaded into the data directory; the build reads the .gpkg inside the zip. BNG (EPSG:27700)."
   },
   "retail_centres": {
-    "gpkg": "Retail_Boundaries_UK.gpkg",
-    "note": "GeoDS Retail Centre Boundaries. Licensed (Geographic Data Service) so manually downloaded into the data directory. BNG (EPSG:27700)."
+    "gpkg": "retailcentre_bounds_uk.gpkg",
+    "note": "GeoDS Retail Centre Boundaries. Licensed (Geographic Data Service) so manually downloaded into the data directory. Supplied in WGS-84 (EPSG:4326); reprojected to BNG (EPSG:27700) on load."
   },
   "schools": {
+    "url": "https://ea-edubase-api-prod.azurewebsites.net/edubase/downloads/public/edubasealldata{date}.csv",
+    "csv": "edubasealldata{date}.csv",
     "glob": "edubasealldata*.csv",
-    "note": "GIAS 'Get Information About Schools' export. Open data but a dated CSV, manually downloaded into the data directory."
+    "note": "GIAS 'Get Information About Schools' export (open data). The 'Establishment fields CSV' is published daily at a {date}-stamped (YYYYMMDD) URL; the loader downloads today's (falling back to yesterday's) and caches it in the data directory."
   },
   "imd": {
     "url": "https://assets.publishing.service.gov.uk/media/691ded56d140bbbaa59a2a7d/File_7_IoD2025_All_Ranks_Scores_Deciles_Population_Denominators.csv",

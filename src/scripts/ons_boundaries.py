@@ -481,7 +481,6 @@ def main(
         False,
         "--list",
         help="List available layers and exit.",
-        is_flag=True,
     ),
 ) -> None:
     if list_flag:

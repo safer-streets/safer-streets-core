@@ -1,4 +1,5 @@
 import tempfile
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 from zipfile import ZipFile
@@ -7,6 +8,7 @@ import duckdb
 import geopandas as gpd
 import pandas as pd
 import pytest
+import requests
 from shapely import LineString, Polygon
 
 from safer_streets_core.database import duckdb_connector, index_geometry_tables
@@ -292,8 +294,13 @@ def test_retail_centres_loads_and_indexes(tmp_path, monkeypatch):
             "Retail_N": [100, 20],
             "Area_km2": [0.8, 0.2],
         },
-        geometry=[Polygon([(0, 0), (100, 0), (100, 100), (0, 100)]), Polygon([(200, 200), (300, 200), (300, 300)])],
-        crs="EPSG:27700",
+        # the GeoDS product is supplied in WGS-84 (lon/lat); use UK coordinates so the
+        # reprojection to BNG lands in a valid range
+        geometry=[
+            Polygon([(-1.5, 53.8), (-1.4, 53.8), (-1.4, 53.9), (-1.5, 53.9)]),
+            Polygon([(-1.3, 53.7), (-1.2, 53.7), (-1.2, 53.8)]),
+        ],
+        crs="EPSG:4326",
     )
     gdf.to_file(tmp_path / data_source("retail_centres")["gpkg"], driver="GPKG")
 
@@ -306,6 +313,8 @@ def test_retail_centres_loads_and_indexes(tmp_path, monkeypatch):
     cols = {d[0] for d in con.execute("SELECT * FROM retail_centres LIMIT 0").description}
     assert {"rc_id", "rc_name", "classification", "geom"} <= cols  # columns lower-cased, geom indexable
     assert con.execute("SELECT COUNT(*) FROM retail_centres").fetchone()[0] == 2  # ty:ignore[not-subscriptable]
+    # geometry reprojected to BNG metres (eastings ~400-500 km), not left as lon/lat degrees
+    assert con.execute("SELECT MIN(ST_XMin(geom)) FROM retail_centres").fetchone()[0] > 1000  # ty:ignore[not-subscriptable]
 
     index_geometry_tables(con)
     indexes = {r[0] for r in con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
@@ -350,10 +359,48 @@ def test_walk_isochrones_is_convex_hull_of_reachable_nodes():
     assert geoms[0].area == 100 * 100  # convex hull of the four corners
 
 
-def test_schools_missing_gias_raises(tmp_path, monkeypatch):
+def test_download_gias_uses_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
-    with pytest.raises(FileNotFoundError, match="GIAS schools export not found"):
-        build_db.load_schools(MagicMock())
+    cached = tmp_path / "edubasealldata20990101.csv"
+    _write_gias_csv(cached)
+    # a cached file is reused without hitting the network
+    monkeypatch.setattr(build_db, "_download", lambda *a, **k: pytest.fail("should not download"))
+    assert build_db._download_gias() == cached
+
+
+def test_download_gias_downloads_dated_url(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    urls: list[str] = []
+
+    def fake_download(url, path):
+        urls.append(url)
+        _write_gias_csv(path)
+
+    monkeypatch.setattr(build_db, "_download", fake_download)
+    today = date.today().strftime("%Y%m%d")
+    result = build_db._download_gias()
+    assert result == tmp_path / f"edubasealldata{today}.csv"
+    assert urls == [f"https://ea-edubase-api-prod.azurewebsites.net/edubase/downloads/public/edubasealldata{today}.csv"]
+
+
+def test_download_gias_falls_back_to_yesterday(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    yesterday = (date.today() - timedelta(days=1)).strftime("%Y%m%d")
+
+    def fake_download(url, path):
+        if yesterday not in url:
+            raise requests.HTTPError("not published yet")
+        _write_gias_csv(path)
+
+    monkeypatch.setattr(build_db, "_download", fake_download)
+    assert build_db._download_gias() == tmp_path / f"edubasealldata{yesterday}.csv"
+
+
+def test_download_gias_failure_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_db, "data_dir", lambda: tmp_path)
+    monkeypatch.setattr(build_db, "_download", MagicMock(side_effect=requests.ConnectionError("offline")))
+    with pytest.raises(FileNotFoundError, match="Could not download the GIAS"):
+        build_db._download_gias()
 
 
 def test_schools_requires_open_roads(tmp_path, monkeypatch):
@@ -381,6 +428,9 @@ def test_schools_builds_isochrones(tmp_path, monkeypatch):
 
     cols = {d[0] for d in con.execute("SELECT * FROM schools LIMIT 0").description}
     assert {"urn", "geom", "isochrone", "isochrone_area_km2"} <= cols
+    # H3 cell ids (resolutions 8-11) derived from the school location
+    assert {"h3_8_id", "h3_9_id", "h3_10_id", "h3_11_id"} <= cols
+    assert con.execute("SELECT COUNT(*) FROM schools WHERE h3_9_id IS NULL").fetchone()[0] == 0  # ty:ignore[not-subscriptable]
     # the closed school (status 4) is filtered out
     assert con.execute("SELECT COUNT(*) FROM schools").fetchone()[0] == 1  # ty:ignore[not-subscriptable]
     # the isochrone is a polygon with positive area (the reachable square)

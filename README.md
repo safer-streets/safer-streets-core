@@ -14,6 +14,26 @@ See [the project page](https://github.com/safer-streets)
 
 ## Building the database
 
+### Configuration
+
+The data directory is read from a `.env` file (resolved relative to where the command is run):
+
+- `SAFER_STREETS_DATA_DIR` — directory for downloaded/output data
+
+The database is written there as `safer_streets.db`. Pass `--db-path` to write elsewhere.
+
+See also `config/data_sources.json` - URLs and filename may need amending from time to time. Manually downloaded files
+must match the filenames in this document.
+
+### Prerequisites
+
+- A login is required for two of the open datasets, so they must be manually downloaded and placed in the data directory:
+   - `land_cover` ([UKCEH Land Cover Map](https://catalogue.ceh.ac.uk/)). Order "Land Cover Map 2024 (land parcels, GB)"
+   and wait for the download link to be emailed to you. TODO: (subject to licence terms) preprocess this dataset to filter only suburban/urban and merge adjacent parcels.
+   - `retail_centres`([GeoDS Retail Centre Boundaries](https://data.geods.ac.uk/dataset/retail-centre-boundaries)
+   download the geopackage.
+
+
 `build-db` runs the full data pipeline in one reproducible pass, producing a single
 DuckDB database. The pipeline:
 
@@ -55,13 +75,6 @@ succeeded. Read-only consumers therefore always see a complete database — eith
 previous one or the new one, never a partial state. A monthly full rebuild is intentional:
 it keeps the logic simple and reliable (no incremental/merge state to maintain).
 
-### Configuration
-
-The data directory is read from a `.env` file (resolved relative to where the command is run):
-
-- `SAFER_STREETS_DATA_DIR` — directory for downloaded/output data
-
-The database is written there as `safer_streets.db`. Pass `--db-path` to write elsewhere.
 
 ### Running
 
