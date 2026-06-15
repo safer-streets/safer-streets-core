@@ -27,12 +27,15 @@ dependencies = [
     "azure-identity>=1.25.0",
     "scikit-learn>=1.7.2",
     "odfpy>=1.4.1",
+    "overturemaps>=1.0.0",
+    "networkx>=3.6.1",
 ]
 
 [project.scripts]
 assign-population = "scripts.assign_population:main"
 extract = "scripts.extract:main"
 cloud = "scripts.azure_sync:main"
+build-db = "scripts.build_db:main"
 
 [dependency-groups]
 dev = [

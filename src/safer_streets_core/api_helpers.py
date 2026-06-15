@@ -41,14 +41,14 @@ def headers() -> dict[str, str | None]:
 
 def get(endpoint: str, *, url: str | None = None, params: dict[str, Any] | None = None) -> Any:
     """Returns the raw json from a get request"""
-    response = requests.get(f"{url or default_url()}/{endpoint}", params=params, headers=headers())
+    response = requests.get(f"{url or default_url()}/{endpoint}", params=params, headers=headers())  # ty:ignore[invalid-argument-type]
     _raise_for_status_with_context(response)
     return response.json()
 
 
 def post(endpoint: str, payload: Any, *, url: str | None = None) -> Any:
     """Returns the raw json from a post request"""
-    response = requests.post(f"{url or default_url()}/{endpoint}", json=payload, headers=headers())
+    response = requests.post(f"{url or default_url()}/{endpoint}", json=payload, headers=headers())  # ty:ignore[invalid-argument-type]
     _raise_for_status_with_context(response)
     return response.json()
 

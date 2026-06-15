@@ -1,0 +1,91 @@
+{
+  "boundaries": {
+    "base_url": "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services",
+    "layers": {
+      "pfa": {
+        "label": "Police Force Areas (Dec 2023, EW, BGC)",
+        "endpoint": "/Police_Force_Areas_December_2023_EW_BGC/FeatureServer/0/query",
+        "id_field": "PFA23CD",
+        "name_field": "PFA23NM",
+        "filename": "police_force_areas_dec2023_ew_bgc",
+        "table": "police_force_areas",
+        "note": "England & Wales only"
+      },
+      "lad": {
+        "label": "Local Authority Districts (May 2024, UK, BGC)",
+        "endpoint": "/Local_Authority_Districts_May_2024_Boundaries_UK_BGC/FeatureServer/0/query",
+        "id_field": "LAD24CD",
+        "name_field": "LAD24NM",
+        "filename": "local_authority_districts_may2024_uk_bgc",
+        "table": "local_authority_districts",
+        "note": "Full UK coverage"
+      },
+      "msoa": {
+        "label": "MSOA 2021 Census (Dec 2021, EW, BGC V3)",
+        "endpoint": "/Middle_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V3/FeatureServer/0/query",
+        "id_field": "MSOA21CD",
+        "name_field": "MSOA21NM",
+        "filename": "msoa_dec2021_ew_bgc_v3",
+        "table": "msoa_2021",
+        "note": "England & Wales only; ~7,264 features"
+      },
+      "lsoa": {
+        "label": "LSOA 2021 Census (Dec 2021, EW, BGC V5)",
+        "endpoint": "/Lower_layer_Super_Output_Areas_December_2021_Boundaries_EW_BGC_V5/FeatureServer/0/query",
+        "id_field": "LSOA21CD",
+        "name_field": "LSOA21NM",
+        "filename": "lsoa_dec2021_ew_bgc_v5",
+        "table": "lsoa_2021",
+        "note": "England & Wales only; ~33,755 features"
+      },
+      "oa": {
+        "label": "Output Areas 2021 Census (Dec 2021, EW, BGC V2)",
+        "endpoint": "/Output_Areas_2021_EW_BGC_V2/FeatureServer/0/query",
+        "id_field": "OA21CD",
+        "name_field": null,
+        "filename": "output_areas_dec2021_ew_bgc_v2",
+        "table": "output_areas_2021",
+        "note": "England & Wales only; ~188,880 features"
+      }
+    }
+  },
+  "greenspace": {
+    "url": "https://api.os.uk/downloads/v1/products/OpenGreenspace/downloads?area=GB&format=ESRI%C2%AE+Shapefile&redirect",
+    "zip": "opgrsp_essh_gb.zip",
+    "layer": "GB_GreenspaceSite.shp",
+    "note": "OS Open Greenspace, OS Downloads API (open data, no API key). BNG (EPSG:27700)."
+  },
+  "roads": {
+    "url": "https://api.os.uk/downloads/v1/products/OpenRoads/downloads?area=GB&format=GeoPackage&redirect",
+    "zip": "oproad_gpkg_gb.zip",
+    "layer": "Data/oproad_gb.gpkg",
+    "note": "OS Open Roads, OS Downloads API (open data, no API key)."
+  },
+  "land_cover": {
+    "zip": "Download_land+cover+2024_2983803.zip",
+    "note": "UKCEH Land Cover Map vector GeoPackage. Licensed (EIDC) so manually downloaded into the data directory; the build reads the .gpkg inside the zip. BNG (EPSG:27700)."
+  },
+  "retail_centres": {
+    "gpkg": "retailcentre_bounds_uk.gpkg",
+    "note": "GeoDS Retail Centre Boundaries. Licensed (Geographic Data Service) so manually downloaded into the data directory. Supplied in WGS-84 (EPSG:4326); reprojected to BNG (EPSG:27700) on load."
+  },
+  "schools": {
+    "url": "https://ea-edubase-api-prod.azurewebsites.net/edubase/downloads/public/edubasealldata{date}.csv",
+    "csv": "edubasealldata{date}.csv",
+    "glob": "edubasealldata*.csv",
+    "note": "GIAS 'Get Information About Schools' export (open data). The 'Establishment fields CSV' is published daily at a {date}-stamped (YYYYMMDD) URL; the loader downloads today's (falling back to yesterday's) and caches it in the data directory."
+  },
+  "imd": {
+    "url": "https://assets.publishing.service.gov.uk/media/691ded56d140bbbaa59a2a7d/File_7_IoD2025_All_Ranks_Scores_Deciles_Population_Denominators.csv",
+    "csv": "File_7_IoD2025_All_Ranks_Scores_Deciles_Population_Denominators.csv",
+    "glob": "File_7_IoD*All_Ranks_Scores_Deciles*.csv",
+    "note": "English Indices of Deprivation 2025 'File 7' (open data, gov.uk)."
+  },
+  "wimd": {
+    "url": "https://www.gov.wales/sites/default/files/statistics-and-research/2025-12/wimd-2025-index-and-domain-scores-by-small-area.ods",
+    "ods": "wimd-2025-index-and-domain-scores-by-small-area.ods",
+    "sheet": "Data",
+    "header_row": 3,
+    "note": "Welsh Index of Multiple Deprivation 2025 index and domain scores by small area (open data, gov.wales)."
+  }
+}

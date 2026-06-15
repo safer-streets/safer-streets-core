@@ -98,6 +98,46 @@ def get_gdf(
     return gpd.GeoDataFrame(df.drop(columns=wkt_col), geometry=gpd.GeoSeries.from_wkt(df[wkt_col]), crs=crs)
 
 
+# tables excluded from geometry indexing by default. crime_data holds millions of
+# point geometries that no spatial join queries, so an RTree there is pure overhead.
+_NO_GEOM_INDEX = frozenset({"crime_data"})
+
+
+def index_geometry_tables(
+    con: duckdb.DuckDBPyConnection,
+    exclude: frozenset[str] = _NO_GEOM_INDEX,
+) -> None:
+    """
+    For every table with a 'geom' column (except those in `exclude`), repair invalid
+    geometries with ST_MakeValid and create an RTree spatial index. Idempotent — safe
+    to call repeatedly.
+
+    Invalid polygons (e.g. self-intersecting boundaries) otherwise break spatial
+    predicates like ST_Intersects; the RTree index then accelerates those joins.
+    """
+    tables = [
+        (row[0], row[1])
+        for row in con.execute(
+            """
+            SELECT c.table_name, c.data_type
+            FROM information_schema.columns c
+            JOIN information_schema.tables t USING (table_catalog, table_schema, table_name)
+            WHERE c.column_name = 'geom' AND c.table_schema = 'main' AND t.table_type = 'BASE TABLE'
+            ORDER BY c.table_name
+            """
+        ).fetchall()
+        if row[0] not in exclude
+    ]
+    for table, geom_type in tables:
+        # only rewrite rows that are actually invalid (NULL geoms are left as-is)
+        con.execute(f'UPDATE "{table}" SET geom = ST_MakeValid(geom) WHERE geom IS NOT NULL AND NOT ST_IsValid(geom);')
+        # ST_Read yields a CRS-qualified type like GEOMETRY('EPSG:27700'); RTree needs a bare
+        # GEOMETRY. Stripping the type qualifier leaves the (BNG) coordinates unchanged.
+        if geom_type != "GEOMETRY":
+            con.execute(f'ALTER TABLE "{table}" ALTER COLUMN geom TYPE GEOMETRY;')
+        con.execute(f'CREATE INDEX IF NOT EXISTS "{table}_geom_rtree" ON "{table}" USING RTREE (geom);')
+
+
 def fix_force_names(con, table: str, column: str) -> None:
     con.execute(f"""
     UPDATE {table}

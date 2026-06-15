@@ -112,6 +112,16 @@ def data_dir() -> Path:
     return Path(os.environ["SAFER_STREETS_DATA_DIR"])
 
 
+@cache
+def database_path() -> Path:
+    """
+    Path to the DuckDB database.
+
+    The filename hard-coded, the path can be modified via the SAFER_STREETS_DATA_DIR env var
+    """
+    return data_dir() / "safer_streets.db"
+
+
 def format_boundary_as_param(polygon: Polygon) -> str:
     xy = zip(*(c.tolist() for c in polygon.exterior.coords.xy), strict=False)
     return ":".join(f"{x:.3f},{y:.3f}" for x, y in xy)
@@ -456,16 +466,29 @@ def y_interp(data: pd.Series, new_y: pd.Index) -> pd.Series:
     return data_inv.reindex(combined_index).interpolate(method="linear").loc[new_y].rename("x")
 
 
-def data_source(key: str) -> str:
+def data_sources_path() -> Path:
+    """Location of the data_sources.json catalogue.
+
+    A copy in the data directory (``data_dir()/data_sources.json``) takes precedence, letting URLs and
+    filenames be corrected at runtime without a redeployment; otherwise the version-controlled default
+    shipped in the repo's ``config/`` is used.
     """
-    Mapping of data source names to remote locations, read from a json file
-    Allows customisation and correction when locations change without a full redeployment
-    File is loaded every time so that applications don't need to be restarted
+    override = data_dir() / "data_sources.json"
+    return override if override.exists() else Path(__file__).parents[2] / "config" / "data_sources.json"
+
+
+def data_source(key: str) -> Any:
     """
-    with open(data_dir() / "data_sources.json") as fd:
+    Catalogue of data sources (remote URLs, cached filenames, layer/sheet hints), read from a json file.
+    Allows customisation and correction when locations change without a full redeployment; the file is
+    loaded on every call so that applications don't need to be restarted. Each entry is a string (a bare
+    URL) or an object (e.g. ``{"url": ..., "zip": ..., "layer": ...}``), depending on the source.
+    """
+    path = data_sources_path()
+    with open(path) as fd:
         data_sources = json.load(fd)
     if key not in data_sources:
-        raise ValueError(f"key {key} does not map to a data source. Check {data_dir()}/data_sources.json")
+        raise ValueError(f"key {key} does not map to a data source. Check {path}")
     return data_sources[key]
 
 
