@@ -16,7 +16,6 @@ The library source lives in [src/safer_streets_core/](src/safer_streets_core/). 
 | ---- | ---- |
 | [utils.py](src/safer_streets_core/utils.py) | Shared utilities: `data_dir`, `data_source`, `Force`, archive/download helpers |
 | [database.py](src/safer_streets_core/database.py) | DuckDB connection context + spatial/vss/h3 extension loading |
-| [transforms.py](src/safer_streets_core/transforms.py) | H3 aggregation transforms for the build pipeline (count tables, lookup views, per-cell geographies) |
 | [spatial.py](src/safer_streets_core/spatial.py) | Spatial units (PFA/MSOA/LSOA/OA, hex/H3 grids, street networks), point aggregation, isochrones |
 | [measures.py](src/safer_streets_core/measures.py) | Concentration measures: Lorenz, Gini, etc. |
 | [stats.py](src/safer_streets_core/stats.py) | Distribution fitting (Poisson, negative binomial, gamma, lognormal, …) |
@@ -31,7 +30,6 @@ CLI entry points (defined under `[project.scripts]` in [pyproject.toml](pyprojec
 
 | Command | Module | Role |
 | ------- | ------ | ---- |
-| `build-db` | [build_db.py](src/scripts/build_db.py) | Run the full data pipeline in one reproducible pass, producing the DuckDB database |
 | `extract` | [extract.py](src/scripts/extract.py) | Download and load police.uk street-level crime data |
 | `assign-population` | [assign_population.py](src/scripts/assign_population.py) | Redistribute census population to other spatial units |
 | `cloud` | [azure_sync.py](src/scripts/azure_sync.py) | Sync data to/from Azure Blob storage |
@@ -80,12 +78,8 @@ anything that needs network access, a real data directory, or an API key.
   (`ruff`, `ty`, `pytest`, `pre-commit`, `datamodel-code-generator`) goes in
   `[dependency-groups.dev]`. New runtime deps need a strong justification — this is already a
   heavy stack (geopandas, duckdb, osmnx, scikit-learn, azure-*).
-- **The build pipeline must stay reproducible and atomic.** `build-db` writes to a
-  `<name>.staging.db` and only promotes it with an atomic `os.replace` once every stage succeeds.
-  Do not break this guarantee — read-only consumers must never see a half-built database.
-- **Downloads are cached.** Stages reuse cached inputs unless `--force-download` is passed, and
-  `--no-replace` resumes an interrupted build by skipping already-present tables. Preserve this
-  behaviour when touching download/extract logic — a full rebuild is expensive (~1 GB road download).
+- **Downloads are cached.** Stages reuse cached inputs unless `--force-download` is passed.
+  Preserve this behaviour when touching download/extract logic.
 - **Data source config is externalised.** New remote URLs, cached filenames or layer/sheet hints
   belong in [config/data_sources.json](config/data_sources.json) (read via `utils.data_source`),
   not hard-coded. A copy dropped in the data directory must still override the bundled one.
@@ -105,21 +99,19 @@ anything that needs network access, a real data directory, or an API key.
 When reviewing a PR or diff, check:
 
 1. **Correctness** — for spatial/statistical code, reason about edge cases: empty inputs, CRS
-   mismatches, invalid geometries (the pipeline runs `ST_MakeValid`), missing optional layers.
-2. **Pipeline integrity** — does `build-db` still write to staging and promote atomically? Are new
-   stages skippable under `--no-replace` and cached under `--force-download` semantics?
-3. **Offline-safe tests** — new tests must pass with `SAFER_STREETS_DATA_DIR=""` and no API key /
+   mismatches, invalid geometries (`ST_MakeValid`), missing optional layers.
+2. **Offline-safe tests** — new tests must pass with `SAFER_STREETS_DATA_DIR=""` and no API key /
    network. Anything needing external resources must be mocked or skipped.
-4. **Coverage** — does the change keep total coverage at or above the 65% gate? New code paths
-   (measures, transforms, error handling) need tests in [src/test/](src/test/).
-5. **CRS correctness** — every new geometry operation should be explicit and consistent about its
+3. **Coverage** — does the change keep total coverage at or above the 65% gate? New code paths
+   (measures, error handling) need tests in [src/test/](src/test/).
+4. **CRS correctness** — every new geometry operation should be explicit and consistent about its
    coordinate reference system.
-6. **Config, not constants** — new data sources go in [config/data_sources.json](config/data_sources.json).
-7. **Types** — precise annotations; avoid `Any` unless unavoidable; don't broaden the relaxed `ty`
+5. **Config, not constants** — new data sources go in [config/data_sources.json](config/data_sources.json).
+6. **Types** — precise annotations; avoid `Any` unless unavoidable; don't broaden the relaxed `ty`
    rules to dodge a real type error.
-8. **Ruff rules** — no rule in the `select` list should be suppressed without justification.
+7. **Ruff rules** — no rule in the `select` list should be suppressed without justification.
    Active rules: `A, B, E, F, I, SIM, UP` (`E501` ignored; `D103` also ignored in test files).
-9. **Docs** — if the build pipeline, CLI flags, manual-download requirements or public behaviour
+8. **Docs** — if the build pipeline, CLI flags, manual-download requirements or public behaviour
    change, update [README.md](README.md).
 
 ## QA Rules
@@ -141,7 +133,6 @@ src/
     __init__.py        # package version
     utils.py           # shared utilities: data_dir, data_source, Force, downloads
     database.py        # DuckDB connection context + extension loading
-    transforms.py      # H3 aggregation transforms for the build pipeline
     spatial.py         # spatial units, point aggregation, street networks, isochrones
     measures.py        # concentration measures (Lorenz, Gini, ...)
     stats.py           # distribution fitting
@@ -152,7 +143,6 @@ src/
     charts.py          # matplotlib chart helpers
     py.typed           # PEP 561 marker
   scripts/
-    build_db.py        # `build-db` — full pipeline
     extract.py         # `extract` — police.uk crime data
     assign_population.py# `assign-population` — population redistribution
     azure_sync.py      # `cloud` — Azure Blob sync

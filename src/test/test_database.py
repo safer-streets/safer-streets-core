@@ -14,6 +14,8 @@ from safer_streets_core.database import (
     get_gdf,
     index_geometry_tables,
     motherduck_connector,
+    read_geoparquet,
+    write_geoparquet,
 )
 
 
@@ -194,6 +196,39 @@ class TestToGdf:
 
             assert gdf.geometry[0].x == 500000
             assert gdf.geometry[0].y == 200000
+
+
+class TestGeoparquetRoundTrip:
+    def test_write_then_read_preserves_geometry(self, tmp_path):
+        try:
+            con = duckdb_connector(writeable=True)
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        con.execute("CREATE TABLE src AS SELECT 1 AS id, ST_Point(500000, 200000) AS geom;")
+        out = tmp_path / "out.parquet"
+        write_geoparquet(con, "SELECT * FROM src", out)
+        assert out.exists()
+
+        con.execute(f"CREATE TABLE back AS {read_geoparquet(out)}")
+        row = con.execute("SELECT id, ST_X(geom), ST_Y(geom) FROM back").fetchone()
+        assert row == (1, 500000, 200000)
+        con.close()
+
+    def test_write_is_atomic_no_tmp_left_behind(self, tmp_path):
+        try:
+            con = duckdb_connector(writeable=True)
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        out = tmp_path / "out.parquet"
+        write_geoparquet(con, "SELECT 1 AS x", out)
+        assert out.exists()
+        assert not out.with_suffix(out.suffix + ".tmp").exists()
+        con.close()
+
+    def test_read_geoparquet_sql(self):
+        assert read_geoparquet(Path("/data/x.parquet")) == "SELECT * FROM read_parquet('/data/x.parquet')"
 
 
 class TestIndexGeometryTables:

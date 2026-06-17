@@ -98,6 +98,29 @@ def get_gdf(
     return gpd.GeoDataFrame(df.drop(columns=wkt_col), geometry=gpd.GeoSeries.from_wkt(df[wkt_col]), crs=crs)
 
 
+def write_geoparquet(con: duckdb.DuckDBPyConnection, query: str, out_path: Path) -> None:
+    """Dump ``query`` (a ``geom`` GEOMETRY column is written as GeoParquet WKB) to ``out_path``.
+
+    Geometry is British National Grid (EPSG:27700) by convention. The DuckDB GEOMETRY type carries no
+    CRS, so its native GeoParquet writer tags written geometry as ``OGC:CRS84``; that label is not
+    relied upon — the coordinates are the contract, and ``index_geometry_tables`` strips the CRS
+    qualifier back to a bare ``GEOMETRY`` on read.
+
+    A temp file is written then moved into place so a crash never leaves a half-written parquet.
+    """
+    tmp = out_path.with_suffix(out_path.suffix + ".tmp")
+    con.execute(f"COPY ({query}) TO '{tmp}' (FORMAT parquet);")
+    tmp.replace(out_path)
+
+
+def read_geoparquet(path: Path) -> str:
+    """SQL reading a dataset parquet back; a ``geom`` column returns as GEOMETRY directly (BNG assumed).
+
+    Wrap in ``CREATE [OR REPLACE] TABLE <name> AS <this>`` to materialise it.
+    """
+    return f"SELECT * FROM read_parquet('{path}')"
+
+
 # tables excluded from geometry indexing by default. crime_data holds millions of
 # point geometries that no spatial join queries, so an RTree there is pure overhead.
 _NO_GEOM_INDEX = frozenset({"crime_data"})
