@@ -228,7 +228,8 @@ class TestGeoparquetRoundTrip:
         con.close()
 
     def test_read_geoparquet_sql(self):
-        assert read_geoparquet(Path("/data/x.parquet")) == "SELECT * FROM read_parquet('/data/x.parquet')"
+        path = Path("/data/x.parquet")
+        assert read_geoparquet(path) == f"SELECT * FROM read_parquet({path})"
 
 
 class TestIndexGeometryTables:
