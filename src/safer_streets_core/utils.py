@@ -113,6 +113,13 @@ def data_dir() -> Path:
 
 
 @cache
+def blob_storage_url() -> str:
+    """Azure Blob Storage account URL, from the SAFER_STREETS_BLOB_STORAGE env var."""
+    load_dotenv()
+    return os.environ["SAFER_STREETS_BLOB_STORAGE"]
+
+
+@cache
 def database_path() -> Path:
     """
     Path to the DuckDB database.

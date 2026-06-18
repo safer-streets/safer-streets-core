@@ -1,3 +1,5 @@
+from enum import StrEnum
+from hashlib import md5
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -10,6 +12,15 @@ from itrx import Itr
 from safer_streets_core.utils import data_dir
 
 # TODO? async https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-upload-python#upload-blobs-asynchronously
+
+
+class UpdatePolicy(StrEnum):
+    """When a destination blob already exists, decide whether a local file replaces it."""
+
+    IGNORE = "ignore"  # don't overwrite if destination exists
+    NEWER = "newer"  # overwrite if the local file is newer than the remote one
+    DIFFERENT = "different"  # overwrite if the md5 sums differ
+    FORCE = "force"  # always overwrite
 
 
 class DataSource(Protocol):
@@ -78,6 +89,28 @@ class AzureBlobStorage:
             return self._client.get_blob_client(filename).get_blob_properties()
         except ResourceNotFoundError:
             return None
+
+    def needs_update(self, root_path: Path, filename: str, policy: UpdatePolicy) -> bool:
+        """Whether the local ``root_path / filename`` should be (re-)uploaded under ``policy``.
+
+        A blob absent remotely is always uploaded; otherwise the remote blob's metadata decides:
+        ``NEWER`` compares last-modified against the local mtime, ``DIFFERENT`` compares md5 sums,
+        ``FORCE`` always re-uploads and ``IGNORE`` never does.
+        """
+        remote_meta = self.metadata(filename)
+        if remote_meta is None:
+            return True
+        match policy:
+            case UpdatePolicy.FORCE:
+                return True
+            case UpdatePolicy.NEWER:
+                return remote_meta.last_modified.timestamp() < (root_path / filename).stat().st_mtime
+            case UpdatePolicy.DIFFERENT:
+                with (root_path / filename).open("rb") as fd:
+                    local_md5 = md5(fd.read()).digest()
+                return local_md5 != remote_meta.content_settings.content_md5
+            case _:  # IGNORE
+                return False
 
     def write_file(self, root_path: Path, filename: str, *, overwrite: bool = False) -> bool:
         """
