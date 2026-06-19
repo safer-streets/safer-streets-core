@@ -18,11 +18,41 @@ def _load_extensions(con: duckdb.DuckDBPyConnection) -> None:
     """)
 
 
-def duckdb_connector(db: Path | None = None, *, writeable: bool = False) -> duckdb.DuckDBPyConnection:
-    """Connect to a local DuckDB file, or in-memory if db is None."""
-    con = duckdb.connect(database=str(db) if db else ":memory:", read_only=db is not None and not writeable)
+def _enable_azure(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute("""
+    INSTALL AZURE;
+    LOAD AZURE;
+    -- force the curl transport, otherwise the default transport fails to locate the SSL CA bundle
+    SET azure_transport_option_type = 'curl';
+    """)
+    con.execute("SET azure_storage_connection_string = ?", (os.environ["AZURE_STORAGE_CONNSTR"],))
+
+
+def duckdb_connector(
+    db: Path | None = None, *, azure: bool = False, writeable: bool = False
+) -> duckdb.DuckDBPyConnection:
+    """
+    Connect to a DuckDB database with optional extensions.
+
+    Args:
+        db: Path to DuckDB file. If None, creates an in-memory database.
+        azure: If True, enables Azure storage support.
+        writeable: If True, opens the database in writeable mode (only applicable to file databases).
+
+    Returns:
+        A DuckDB connection with spatial, vector search, and H3 extensions loaded.
+
+    Raises:
+        Exception: If extension loading fails.
+    """
+    con = duckdb.connect(
+        database=str(db) if db else ":memory:",
+        read_only=db is not None and not writeable,
+    )
     try:
         _load_extensions(con)
+        if azure:
+            _enable_azure(con)
         return con
     except Exception:
         con.close()
@@ -30,14 +60,21 @@ def duckdb_connector(db: Path | None = None, *, writeable: bool = False) -> duck
 
 
 @contextmanager
-def duckdb_context(db: Path | None = None, *, writeable: bool = False) -> Iterator[duckdb.DuckDBPyConnection]:
+def duckdb_context(
+    db: Path | None = None, *, azure: bool = False, writeable: bool = False
+) -> Iterator[duckdb.DuckDBPyConnection]:
     """
     Context managed DB connection.
     Limited usefulness for in-memory databases as DB will exist only within the context
     """
-    con = duckdb.connect(database=str(db) if db else ":memory:", read_only=db is not None and not writeable)
+    con = duckdb.connect(
+        database=str(db) if db else ":memory:",
+        read_only=db is not None and not writeable,
+    )
     try:
         _load_extensions(con)
+        if azure:
+            _enable_azure(con)
         yield con
     finally:
         con.close()
@@ -87,7 +124,12 @@ def add_table_from_shapefile(
 
 
 def get_gdf(
-    con: duckdb.DuckDBPyConnection, query: str, *, wkt_col: str = "wkt", crs="EPSG:27700", **kwargs
+    con: duckdb.DuckDBPyConnection,
+    query: str,
+    *,
+    wkt_col: str = "wkt",
+    crs="EPSG:27700",
+    **kwargs,
 ) -> gpd.GeoDataFrame:
     """
     Runs a query returning a dataframe and converts to GeoDataFrame
