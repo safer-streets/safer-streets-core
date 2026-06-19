@@ -23,6 +23,19 @@ class UpdatePolicy(StrEnum):
     FORCE = "force"  # always overwrite
 
 
+# User-metadata key under which an upload stashes the source file's mtime. Azure's own last_modified
+# reflects the moment of upload, not the content's modification time, so we record the source mtime
+# ourselves (cf. ``scp -p``) to make modification-time comparisons meaningful across uploads/machines.
+SRC_MTIME_KEY = "src_mtime"
+
+
+def blob_mtime(properties: Any) -> float:
+    """The source file's mtime for a blob: the ``src_mtime`` stamped at upload when present, falling
+    back to the blob's own last-modified time for blobs written before ``src_mtime`` was recorded."""
+    src = (properties.metadata or {}).get(SRC_MTIME_KEY)
+    return float(src) if src is not None else properties.last_modified.timestamp()
+
+
 class DataSource(Protocol):
     def list(self, startswith: str | None = None) -> Itr[str]: ...
 
@@ -30,7 +43,9 @@ class DataSource(Protocol):
 
     def metadata(self, filename: str) -> Any: ...
 
-    def write_file(self, root_path: Path, filename: str, *, overwrite: bool = False) -> bool: ...
+    def write_file(
+        self, root_path: Path, filename: str, *, overwrite: bool = False, metadata: dict[str, str] | None = None
+    ) -> bool: ...
 
     def delete_file(self, filename: str) -> bool: ...
 
@@ -56,7 +71,9 @@ class LocalFileStorage:
     def metadata(self, filename: str) -> Any:
         return (self._path / filename).stat()
 
-    def write_file(self, root_path: Path, filename: str, *, overwrite: bool = False) -> bool:
+    def write_file(
+        self, root_path: Path, filename: str, *, overwrite: bool = False, metadata: dict[str, str] | None = None
+    ) -> bool:
         raise NotImplementedError("LocalFileStorage only supports readonly access")
 
     def delete_file(self, filename: str) -> bool:
@@ -104,7 +121,7 @@ class AzureBlobStorage:
             case UpdatePolicy.FORCE:
                 return True
             case UpdatePolicy.NEWER:
-                return remote_meta.last_modified.timestamp() < (root_path / filename).stat().st_mtime
+                return blob_mtime(remote_meta) < (root_path / filename).stat().st_mtime
             case UpdatePolicy.DIFFERENT:
                 with (root_path / filename).open("rb") as fd:
                     local_md5 = md5(fd.read()).digest()
@@ -112,15 +129,23 @@ class AzureBlobStorage:
             case _:  # IGNORE
                 return False
 
-    def write_file(self, root_path: Path, filename: str, *, overwrite: bool = False) -> bool:
+    def write_file(
+        self, root_path: Path, filename: str, *, overwrite: bool = False, metadata: dict[str, str] | None = None
+    ) -> bool:
         """
-        Write file to azure (path in container will be filename)
+        Write file to azure (path in container will be filename).
+
+        The source file's mtime is recorded as blob metadata under ``SRC_MTIME_KEY`` (see ``blob_mtime``),
+        preserving the content's modification time across the upload (cf. ``scp -p``); any ``metadata``
+        passed by the caller is merged in and takes precedence.
         """
         blob_client = self._client.get_blob_client(filename)
         if not overwrite and blob_client.exists():
             return False
-        with open(root_path / filename, "rb") as fd:
-            blob_client.upload_blob(fd, overwrite=overwrite)
+        src_path = root_path / filename
+        meta = {SRC_MTIME_KEY: str(src_path.stat().st_mtime), **(metadata or {})}
+        with open(src_path, "rb") as fd:
+            blob_client.upload_blob(fd, overwrite=overwrite, metadata=meta)
         return True
 
     def delete_file(self, filename: str) -> bool:

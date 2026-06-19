@@ -1,9 +1,11 @@
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from safer_streets_core.file_storage import LocalFileStorage
+from safer_streets_core.file_storage import SRC_MTIME_KEY, LocalFileStorage, blob_mtime
 
 
 @pytest.fixture
@@ -53,3 +55,22 @@ class TestLocalFileStorage:
         store = LocalFileStorage(storage_dir)
         with pytest.raises(NotImplementedError):
             store.write_buffer(BytesIO(b"x"), "new.txt")
+
+
+class TestBlobMtime:
+    def test_prefers_recorded_src_mtime(self):
+        # the blob carries the source file's mtime; its own upload time is later and ignored
+        props = SimpleNamespace(
+            metadata={SRC_MTIME_KEY: "5000.0"},
+            last_modified=datetime.fromtimestamp(9999.0, tz=UTC),
+        )
+        assert blob_mtime(props) == 5000.0
+
+    def test_falls_back_to_last_modified(self):
+        # blobs uploaded before src_mtime was recorded have no such metadata
+        props = SimpleNamespace(metadata={}, last_modified=datetime.fromtimestamp(8000.0, tz=UTC))
+        assert blob_mtime(props) == 8000.0
+
+    def test_falls_back_when_metadata_is_none(self):
+        props = SimpleNamespace(metadata=None, last_modified=datetime.fromtimestamp(7000.0, tz=UTC))
+        assert blob_mtime(props) == 7000.0
