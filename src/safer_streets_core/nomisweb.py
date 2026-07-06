@@ -156,6 +156,9 @@ class TableMetadata(BaseModel):
     structure: TableStructure
 
 
+ALL_OAS_EW = "629145601...629334480"
+
+
 def build_geog_query(codes: Iterable[int]) -> str:
     sequences = []
     for _key, group in groupby(enumerate(sorted(codes)), lambda item: item[1] - item[0]):
