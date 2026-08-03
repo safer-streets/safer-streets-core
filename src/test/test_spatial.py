@@ -131,7 +131,7 @@ class TestGetDemographics:
         )
         features = gpd.GeoDataFrame(
             {"geometry": [Polygon([(0, 0), (20, 0), (20, 20), (0, 20)])]},
-            index=pd.Index([0], name="spatial_unit"),
+            index=pd.Index([0], name="spatial_id"),
             crs="EPSG:27700",
         )
         result = get_demographics(population, features)

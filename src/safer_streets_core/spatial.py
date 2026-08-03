@@ -122,7 +122,7 @@ def get_census_boundaries(
     boundaries = gpd.read_file(data_dir() / f"{CENSUS_BOUNDARY_FILES[geography][resolution]}").set_index(
         f"{geography}CD"
     )
-    boundaries.index.name = "spatial_unit"
+    boundaries.index.name = "spatial_id"
     if overlapping is not None:
         # Drop boundaries that adjoin the overlapping area (but might overlap slightly due to rounding errors)
         joined = boundaries.sjoin(overlapping[["geometry"]], how="inner", predicate="intersects")
@@ -162,7 +162,7 @@ def get_square_grid(
     grid = _add_centroids(grid)
     if trim:
         grid = grid.overlay(boundary)
-    grid.index.name = "spatial_unit"
+    grid.index.name = "spatial_id"
     return grid
 
 
@@ -187,7 +187,7 @@ def get_h3_grid(
         .to_crs(epsg=27700)
     ).drop(columns="PFA23CD")
 
-    h3cells.index.name = "spatial_unit"
+    h3cells.index.name = "spatial_id"
 
     h3cells = _add_centroids(h3cells)
     if trim:
@@ -261,7 +261,7 @@ def get_hex_grid(
     # clip features that cross the boundary
     grid = _add_centroids(grid)
     grid = grid.overlay(boundary) if clip else grid.sjoin(boundary)
-    grid.index.name = "spatial_unit"
+    grid.index.name = "spatial_id"
     return grid
 
 
@@ -336,19 +336,19 @@ def map_to_spatial_unit(
     match area_type:
         case "MSOA21" | "LSOA21" | "OA21":
             features = get_census_boundaries(area_type, overlapping=boundary, **kwargs)
-            crime_data = features.sjoin(crime_data, how="right").rename(columns={f"{area_type}CD": "spatial_unit"})
+            crime_data = features.sjoin(crime_data, how="right").rename(columns={f"{area_type}CD": "spatial_id"})
         case "GRID":
             features = get_square_grid(boundary, **kwargs)
-            crime_data = features.sjoin(crime_data, how="right").rename(columns={"index_left": "spatial_unit"})
+            crime_data = features.sjoin(crime_data, how="right").rename(columns={"index_left": "spatial_id"})
         case "HEX":
             features = get_hex_grid(boundary, **kwargs)
-            crime_data = features.sjoin(crime_data, how="right").rename(columns={"index_left": "spatial_unit"})
+            crime_data = features.sjoin(crime_data, how="right").rename(columns={"index_left": "spatial_id"})
         case "H3":
             features = get_h3_grid(boundary, **kwargs)
-            crime_data = features.sjoin(crime_data, how="right").rename(columns={"h3_polyfill": "spatial_unit"})
+            crime_data = features.sjoin(crime_data, how="right").rename(columns={"h3_polyfill": "spatial_id"})
         case "STREET":
             features = get_street_network(boundary)
-            crime_data = snap_to_street_segment(crime_data, features).rename(columns={"street_segment": "spatial_unit"})
+            crime_data = snap_to_street_segment(crime_data, features).rename(columns={"street_segment": "spatial_id"})
 
     # all crimes should be accounted for
     assert total_crimes == len(crime_data)
@@ -400,7 +400,7 @@ def get_demographics(population: gpd.GeoDataFrame, features: gpd.GeoDataFrame) -
     remapped = features.sjoin(population)
     return (
         remapped.groupby(
-            ["spatial_unit", "C2021_ETH_20_NAME", "C2021_AGE_6_NAME", "C_SEX_NAME"],
+            ["spatial_id", "C2021_ETH_20_NAME", "C2021_AGE_6_NAME", "C_SEX_NAME"],
             observed=False,
         )
         .size()

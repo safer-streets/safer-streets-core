@@ -3,6 +3,8 @@ import types
 
 import geopandas as gpd
 import pandas as pd
+import pytest
+import requests
 
 import safer_streets_core.api_helpers as api_helpers
 
@@ -17,6 +19,41 @@ class DummyResponse:
 
     def json(self):
         return self._data
+
+
+class FailingResponse:
+    def __init__(self, status_code, error_json):
+        self.status_code = status_code
+        self._error_json = error_json
+
+    def raise_for_status(self):
+        raise requests.exceptions.HTTPError("boom")
+
+    def json(self):
+        return self._error_json
+
+
+def test_default_url_reads_env_var(monkeypatch):
+    monkeypatch.setenv("SAFER_STREETS_API_URL", "http://from-env")
+    assert api_helpers.default_url() == "http://from-env"
+
+
+def test_api_error_message_format():
+    err = api_helpers.ApiError(404, error="NotFound", detail="missing", path="/foo", method="GET")
+    assert str(err) == "HTTP GET 404 /foo NotFound: missing"
+
+
+def test_raise_for_status_with_context_raises_api_error_on_http_error():
+    response = FailingResponse(500, {"error": "ServerError", "detail": "oops", "path": "/bar", "method": "POST"})
+    with pytest.raises(api_helpers.ApiError) as exc_info:
+        api_helpers._raise_for_status_with_context(response)
+    assert str(exc_info.value) == "HTTP POST 500 /bar ServerError: oops"
+
+
+def test_raise_for_status_with_context_does_nothing_on_success():
+    response = DummyResponse({"ok": True})
+    api_helpers._raise_for_status_with_context(response)
+    assert response.raise_called is True
 
 
 def test_get_calls_requests_get_and_returns_json(monkeypatch):
