@@ -10,7 +10,9 @@ from safer_streets_core.utils import (
 
 
 def main() -> None:
-    """Script that generates 200m (side) hex cells over England & Wales"""
+    """
+    [deprecated] Script that generates 200m (side) hex cells over England & Wales
+    """
     t = time()
     # set up some parameters
     SPATIAL_UNIT = "HEX"
@@ -22,7 +24,7 @@ def main() -> None:
         geometry=[pd.concat([e_boundary, w_boundary]).union_all()], crs=e_boundary.crs
     ).to_crs(epsg=27700)
 
-    hexes = get_hex_grid(ew_boundary, size=SPATIAL_UNIT_SIZE, trim=False)
+    hexes = get_hex_grid(ew_boundary, size=SPATIAL_UNIT_SIZE, clip=False)
     print(f"t={time() - t:.1f}s")
     hexes.to_parquet(data_dir() / f"england_wales_{SPATIAL_UNIT}-{SPATIAL_UNIT_SIZE}_bb.parquet")
     print(len(hexes))

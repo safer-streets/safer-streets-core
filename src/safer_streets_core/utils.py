@@ -369,7 +369,7 @@ def random_crime_data_by_feature(
 
     random = pd.DataFrame(
         data={
-            "Month": rng.choice(months, n),
+            "Month": rng.choice(months, n),  # ty: ignore[no-matching-overload]
             "spatial_unit": rng.choice(features.index, n, **extra_args),
             "Crime type": "Random",
         }
@@ -434,7 +434,7 @@ def get_crime_counts(crimes: pd.DataFrame, features: gpd.GeoDataFrame) -> pd.Dat
     "Group by spatial unit and count, ensuring features with no crimes are accounted for"
     return (
         crimes.groupby("spatial_unit")
-        .apply(len, include_groups=False)
+        .apply(len, include_groups=False)  # ty: ignore[no-matching-overload]
         .rename("count")
         .reindex(features.index, fill_value=0)
     )
@@ -444,7 +444,7 @@ def get_monthly_crime_counts(crimes: pd.DataFrame, features: gpd.GeoDataFrame) -
     "Group by spatial unit/month and count, ensuring features with no crimes are accounted for"
     return (
         crimes.groupby(["Month", "spatial_unit"])
-        .apply(len, include_groups=False)
+        .apply(len, include_groups=False)  # ty: ignore[no-matching-overload]
         .unstack(level="Month", fill_value=0)
         .reindex(features.index, fill_value=0)
         .sort_index()
@@ -509,7 +509,7 @@ def force_headcount() -> pd.Series:
 
     # strip notes (in [])
     raw.columns = ["code", "force", "officers"]
-    raw.force = raw.force.str.replace(r"\[.*?\]", "", regex=True).str.strip()
+    raw["force"] = raw["force"].str.replace(r"\[.*?\]", "", regex=True).str.strip()
 
     # correct names
     name_adjustments = {
@@ -518,7 +518,7 @@ def force_headcount() -> pd.Series:
         "Dyfed-Powys": "Dyfed Powys",
         "Hampshire and Isle of Wight": "Hampshire",
     }
-    raw.force = raw.force.map(lambda n: name_adjustments.get(n, n))
+    raw["force"] = raw["force"].map(lambda n: name_adjustments.get(n, n))
 
     # strip non-PFA entries and codes
     return (

@@ -22,8 +22,9 @@ from safer_streets_core.utils import (
     tokenize_force_name,
 )
 
+AdminGeography = Literal["PFA23", "LAD24"]
 CensusGeography = Literal["MSOA21", "LSOA21", "OA21"]
-SpatialUnit = CensusGeography | Literal["GRID", "H3", "HEX", "STREET"]
+SpatialUnit = AdminGeography | CensusGeography | Literal["GRID", "H3", "HEX", "STREET"]
 Resolution = Literal["FE", "GC", "SC"]
 
 # Download at least one of these from ONS
@@ -42,6 +43,64 @@ CENSUS_BOUNDARY_FILES = {
         "FE": "Output_Areas_2021_EW_BFE_V9_-4280877107876255952.zip",
         "GC": "Output_Areas_2021_EW_BGC_V2_-6371128854279904124.zip",
     },
+}
+
+
+# hexes are 350m high (flat-to-flat), i.e. size (side length / circumradius,
+# per get_hex_grid's convention) is 350 / sqrt(3)
+HO_HEX_SIZE = 350.0 / 3**0.5
+
+# the national HO hex grid was generated per-force rather than from one shared
+# origin, so forces land on one of 3 equivalent offsets, each a 1/3-lattice-
+# vector twist of the others (see scripts/pfa_hex_offsets.py)
+_HO_HEX_OFFSET_A = (-HO_HEX_SIZE / 2, -350.0 / 3)
+_HO_HEX_OFFSET_B = (HO_HEX_SIZE / 2, -350.0 / 3)
+_HO_HEX_OFFSET_C = (0.0, 350.0 / 6)
+
+HO_HEX_OFFSETS: dict[str, tuple[float, float]] = {
+    "Avon and Somerset": _HO_HEX_OFFSET_A,
+    "Bedfordshire": _HO_HEX_OFFSET_B,
+    "Cambridgeshire": _HO_HEX_OFFSET_A,
+    "Cheshire": _HO_HEX_OFFSET_C,
+    "Cleveland": _HO_HEX_OFFSET_B,
+    "Cumbria": _HO_HEX_OFFSET_A,
+    "Derbyshire": _HO_HEX_OFFSET_B,
+    "Devon & Cornwall": _HO_HEX_OFFSET_C,
+    "Dorset": _HO_HEX_OFFSET_B,
+    "Durham": _HO_HEX_OFFSET_B,
+    "Dyfed-Powys": _HO_HEX_OFFSET_A,
+    "Essex": _HO_HEX_OFFSET_A,
+    "Gloucestershire": _HO_HEX_OFFSET_A,
+    "Greater Manchester": _HO_HEX_OFFSET_B,
+    "Gwent": _HO_HEX_OFFSET_B,
+    "Hampshire": _HO_HEX_OFFSET_A,
+    "Hertfordshire": _HO_HEX_OFFSET_C,
+    "Humberside": _HO_HEX_OFFSET_A,
+    "Kent": _HO_HEX_OFFSET_B,
+    "Lancashire": _HO_HEX_OFFSET_A,
+    "Leicestershire": _HO_HEX_OFFSET_A,
+    "Lincolnshire": _HO_HEX_OFFSET_B,
+    "London, City of": _HO_HEX_OFFSET_A,
+    "Merseyside": _HO_HEX_OFFSET_B,
+    "Metropolitan Police": _HO_HEX_OFFSET_A,
+    "Norfolk": _HO_HEX_OFFSET_B,
+    "North Wales": _HO_HEX_OFFSET_A,
+    "North Yorkshire": _HO_HEX_OFFSET_B,
+    "Northamptonshire": _HO_HEX_OFFSET_B,
+    "Northumbria": _HO_HEX_OFFSET_C,
+    "Nottinghamshire": _HO_HEX_OFFSET_C,
+    "South Wales": _HO_HEX_OFFSET_B,
+    "South Yorkshire": _HO_HEX_OFFSET_C,
+    "Staffordshire": _HO_HEX_OFFSET_A,
+    "Suffolk": _HO_HEX_OFFSET_C,
+    "Surrey": _HO_HEX_OFFSET_C,
+    "Sussex": _HO_HEX_OFFSET_A,
+    "Thames Valley": _HO_HEX_OFFSET_A,
+    "Warwickshire": _HO_HEX_OFFSET_B,
+    "West Mercia": _HO_HEX_OFFSET_C,
+    "West Midlands": _HO_HEX_OFFSET_A,
+    "West Yorkshire": _HO_HEX_OFFSET_B,
+    "Wiltshire": _HO_HEX_OFFSET_A,
 }
 
 
@@ -142,9 +201,28 @@ def get_hex_grid(
     *,
     size: float,
     offset: tuple[float, float] | None = None,
-    trim: bool = True,
+    clip: bool = False,
 ) -> gpd.GeoDataFrame:
-    "size is the length of one side. The corresponds to an area of 3/2*sqrt(3)*s**2"
+    """
+    size is the length of one side. The corresponds to an area of 3/2*sqrt(3)*s**2
+
+    The grid is anchored at BNG (0, 0) shifted by `offset`, not at the
+    boundary's own bounding box. This means the same (size, offset) always
+    reproduces the same national hex lattice regardless of which boundary is
+    passed in - e.g. a whole-country grid and a single PFA's grid generated
+    with the same offset will tile together seamlessly, which isn't true if
+    the anchor depends on each boundary's own bounds.
+
+    `clip` controls how edge hexagons (those overlapping the boundary rather
+    than lying wholly inside it) are handled:
+    - clip=False (default): edge hexagons are kept whole (via sjoin), so their
+      geometry can extend beyond the boundary and every cell remains a regular
+      hexagon of area 3/2*sqrt(3)*size**2.
+    - clip=True: edge hexagons are cut to the boundary (via overlay), so no
+      cell extends beyond it, but boundary cells become irregular polygons
+      with less than the full hexagon area.
+    Interior hexagons (fully inside the boundary) are identical either way.
+    """
 
     xoff, yoff = offset or (0.0, 0.0)
     xmin, ymin, xmax, ymax = boundary.total_bounds
@@ -164,31 +242,25 @@ def get_hex_grid(
             (x0 + size / 2, y0 - h),
         ]
 
-    X = np.arange(xmin // size * size - size + xoff, xmax // size * size + 3 * size + xoff, 2 * dx)
-    Y = np.arange(ymin // size * size - size + yoff, ymax // size * size + 3 * size + yoff, dy)
+    def lattice_range(vmin: float, vmax: float, phase: float, period: float) -> np.ndarray:
+        "coordinates phase + k*period (k integer) that cover [vmin, vmax], with a 1-period buffer either side"
+        lo = phase + period * (np.floor((vmin - phase) / period) - 1)
+        hi = phase + period * (np.ceil((vmax - phase) / period) + 1)
+        return np.arange(lo, hi, period)
+
+    X = lattice_range(xmin, xmax, xoff, 2 * dx)
+    Y = lattice_range(ymin, ymax, yoff, dy)
     p = [Polygon(hexagon(x, y)) for x in X for y in Y]
-    X = np.arange(
-        xmin // size * size - size + xoff + dx,
-        xmax // size * size + 3 * size + xoff + dx,
-        2 * dx,
-    )
-    Y = np.arange(
-        ymin // size * size - size + yoff + h,
-        ymax // size * size + 3 * size + yoff + h,
-        dy,
-    )
+    X = lattice_range(xmin, xmax, xoff + dx, 2 * dx)
+    Y = lattice_range(ymin, ymax, yoff + h, dy)
     p.extend([Polygon(hexagon(x, y)) for x in X for y in Y])
 
-    # super-slow sjoin
-    grid = (
-        gpd.GeoDataFrame(geometry=p, crs="EPSG:27700")
-        # .sjoin(boundary[["geometry"]])
-        .drop(columns=[boundary.index.name, "index_right"], errors="ignore")
+    grid = gpd.GeoDataFrame(geometry=p, crs="EPSG:27700").drop(
+        columns=[boundary.index.name, "index_right"], errors="ignore"
     )
-    # trim features that cross the boundary
+    # clip features that cross the boundary
     grid = _add_centroids(grid)
-    if trim:
-        grid = grid.overlay(boundary)
+    grid = grid.overlay(boundary) if clip else grid.sjoin(boundary)
     grid.index.name = "spatial_unit"
     return grid
 
@@ -230,9 +302,11 @@ def get_force_boundary(force_name: Force) -> gpd.GeoDataFrame:
     # )
     # force_boundaries = pd.concat((force_boundaries, ni))
 
-    if corrected_force_name not in force_boundaries.PFA23NM.to_list():
-        raise ValueError(f"{corrected_force_name} is not valid. Must be one of {', '.join(force_boundaries.PFA23NM)}")
-    return force_boundaries[corrected_force_name == force_boundaries.PFA23NM].drop(
+    if corrected_force_name not in force_boundaries["PFA23NM"].to_list():
+        raise ValueError(
+            f"{corrected_force_name} is not valid. Must be one of {', '.join(force_boundaries['PFA23NM'])}"
+        )
+    return force_boundaries[force_boundaries["PFA23NM"] == corrected_force_name].drop(
         columns=["BNG_E", "BNG_N", "LAT", "LONG", "GlobalID"]
     )
 
@@ -314,7 +388,7 @@ def load_population_data(force: Force) -> gpd.GeoDataFrame:
     if not file.exists():
         raise FileNotFoundError(f"Population data for {force} not found ({file}).")
     population = pd.read_parquet(file)
-    population.geometry = shapely.from_wkt(population.geometry)
+    population["geometry"] = shapely.from_wkt(population["geometry"])
     return gpd.GeoDataFrame(population, crs="EPSG:27700")
 
 

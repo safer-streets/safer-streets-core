@@ -39,17 +39,19 @@ def test_get_calls_requests_get_and_returns_json(monkeypatch):
 def test_post_calls_requests_post_and_returns_json(monkeypatch):
     received = {}
 
-    def fake_post(url, json=None, headers=None):
+    def fake_post(url, params=None, json=None, headers=None):
         received["url"] = url
+        received["params"] = params
         received["json"] = json
         received["headers"] = headers
         return DummyResponse({"created": True})
 
     monkeypatch.setattr(api_helpers, "requests", types.SimpleNamespace(post=fake_post))
     payload = {"x": 2}
-    result = api_helpers.post("items", payload, url="http://api.local")
+    result = api_helpers.post("items", payload, url="http://api.local", params={"q": 1})
     assert result == {"created": True}
     assert received["url"] == "http://api.local/items"
+    assert received["params"] == {"q": 1}
     assert received["json"] == payload
     assert received["headers"] == api_helpers.headers()
 

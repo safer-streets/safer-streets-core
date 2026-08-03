@@ -1,8 +1,11 @@
+from typing import cast
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from matplotlib.projections.polar import PolarAxes
 
 DEFAULT_COLOUR = "#356285"
 
@@ -27,7 +30,7 @@ def make_radar_chart(
     angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False)
     angles = np.concatenate((angles, [angles[0]]))
 
-    ax = fig.add_subplot(pos, polar=True)
+    ax = cast(PolarAxes, fig.add_subplot(pos, polar=True))
 
     for _, row in data.iterrows():
         stats = np.concatenate((row.to_numpy(), [row.to_numpy()[0]]))
@@ -58,7 +61,7 @@ def make_radar_chart2(
     angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False)
     angles = np.concatenate((angles, [angles[0]]))
 
-    ax = fig.add_subplot(pos, polar=True)
+    ax = cast(PolarAxes, fig.add_subplot(pos, polar=True))
 
     for name, row in data.iterrows():
         stats = np.concatenate((row.to_numpy(), [row.to_numpy()[0]]))

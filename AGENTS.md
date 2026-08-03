@@ -74,6 +74,13 @@ anything that needs network access, a real data directory, or an API key.
 
 ## Developer Rules
 
+- **DO NOT READ `.env` FILES.** Never open, `cat`, `grep`, or otherwise read `.env`, `.env.*`, or
+  `.envrc` — in this repo, a parent directory, or anywhere else. They hold live credentials (API
+  keys, tokens, connection strings), and anything read lands in a conversation transcript that is
+  stored and may be processed downstream. This holds even when asked to "check the config" or debug
+  a credential problem: report what is missing by name and let the human inspect the value. The same
+  goes for any other secret store — `~/.aws/credentials`, `~/.ssh/`, `*.pem`, `secrets.*`. If a
+  secret does end up exposed, say so plainly and recommend rotating it.
 - **Runtime vs dev dependencies.** Runtime deps go in `[project.dependencies]`; tooling
   (`ruff`, `ty`, `pytest`, `pre-commit`, `datamodel-code-generator`) goes in
   `[dependency-groups.dev]`. New runtime deps need a strong justification — this is already a

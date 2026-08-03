@@ -29,7 +29,7 @@ def lorenz_curve(
     data["order"] = data[data_col] / data[weight_col]
     data = data.sort_values(by=["order", data_col], ascending=False).cumsum().set_index(weight_col, drop=True)[data_col]
     # add origin
-    data.loc[0.0] = 0.0
+    data.loc[0.0] = 0.0  # ty: ignore[invalid-assignment]
     if normalise_x:
         data = data.set_axis(data.index / data.index.max())
     if normalise_y:
@@ -49,15 +49,15 @@ def lorenz_baseline_from_poisson(lambda_: float) -> pd.Series:
     x = np.insert(pmf.cumsum(), 0, 0)
     baseline = pd.Series(index=1 - x[1:], data=1 - x[:-1])
     # baseline = pd.Series(index=(1 - pmf.cumsum()), data=(1 - pmf.cumsum()).shift().values).fillna(1)
-    baseline.loc[0.0] = 0.0
-    baseline.loc[1.0] = 1.0
+    baseline.loc[0.0] = 0.0  # ty: ignore[invalid-assignment]
+    baseline.loc[1.0] = 1.0  # ty: ignore[invalid-assignment]
     # remove potentially duplicated values when x ~ double epsilon (happens with large lambda)
     return baseline.sort_index()[~baseline.sort_index().index.duplicated()]
 
 
 def lorenz_baseline_from_pmf(pmf: pd.Series) -> pd.Series:
     lorenz = pd.Series()
-    lorenz.loc[1.0] = 1.0
+    lorenz.loc[1.0] = 1.0  # ty: ignore[invalid-assignment]
 
     mean_mixture = sum(k * p for k, p in pmf.items())
     cumulative_prob = 0.0

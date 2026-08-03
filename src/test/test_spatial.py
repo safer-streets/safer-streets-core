@@ -62,14 +62,14 @@ class TestGetHexGrid:
     def test_hex_grid_creation(self):
         """Test that hex grid creates polygons"""
         boundary = gpd.GeoDataFrame(geometry=[Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])], crs="EPSG:27700")
-        grid = get_hex_grid(boundary, size=10, trim=False)
+        grid = get_hex_grid(boundary, size=10, clip=False)
         assert len(grid) > 0
         assert all(isinstance(geom, Polygon) for geom in grid.geometry)
 
     def test_hex_grid_has_centroids(self):
         """Test that hex grid includes centroid columns"""
         boundary = gpd.GeoDataFrame(geometry=[Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])], crs="EPSG:27700")
-        grid = get_hex_grid(boundary, size=10, trim=False)
+        grid = get_hex_grid(boundary, size=10, clip=False)
         assert "BNG_E" in grid.columns
         assert "BNG_N" in grid.columns
 

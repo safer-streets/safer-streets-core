@@ -3,6 +3,7 @@ from typing import cast
 import geopandas as gpd
 import humanleague as hl
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import shapely
 import typer
@@ -33,6 +34,9 @@ def impl(force: str, *, seed: int = 19937) -> None:
     print(f"Fetching metadata for {TABLE_NAME}...")
     metadata = TableMetadata(**fetch(f"dataset/{TABLE_NAME}.def.sdmx.json"))
 
+    if not metadata.structure.keyfamilies:
+        raise ValueError(f"No metadata found for table '{TABLE_NAME}'")
+
     fields = {
         a.conceptref: {"codelist": a.codelist} for a in metadata.structure.keyfamilies.keyfamily[0].components.dimension
     }
@@ -61,10 +65,10 @@ def impl(force: str, *, seed: int = 19937) -> None:
     data = pd.concat(chunks, ignore_index=True)
 
     # using categories saves a ton of memory
-    data.GEOGRAPHY_CODE = data.GEOGRAPHY_CODE.astype("category")
-    data.C2021_ETH_20_NAME = data.C2021_ETH_20_NAME.astype("category")
-    data.C2021_AGE_6_NAME = data.C2021_AGE_6_NAME.astype("category")
-    data.C_SEX_NAME = data.C_SEX_NAME.astype("category")
+    data["GEOGRAPHY_CODE"] = data["GEOGRAPHY_CODE"].astype("category")
+    data["C2021_ETH_20_NAME"] = data["C2021_ETH_20_NAME"].astype("category")
+    data["C2021_AGE_6_NAME"] = data["C2021_AGE_6_NAME"].astype("category")
+    data["C_SEX_NAME"] = data["C_SEX_NAME"].astype("category")
 
     # expand to one row per person
     exploded = data.loc[data.index.repeat(data.OBS_VALUE)].drop(columns="OBS_VALUE").reset_index(drop=True)
@@ -93,7 +97,12 @@ def impl(force: str, *, seed: int = 19937) -> None:
             continue
 
         # assign population proportionally to street segments
-        pop_per_street, stats = hl.integerise(len(group) * local_streets.length / local_streets.length.sum())
+        pop_per_street, stats = hl.integerise(
+            cast(
+                npt.NDArray[np.float64],
+                (len(group) * local_streets.length / local_streets.length.sum()).to_numpy(dtype=np.float64),
+            )
+        )
         points = local_streets.sample_points(
             pop_per_street, rng=rng
         ).explode()  # need to explode to count intersections with individual points
@@ -103,7 +112,7 @@ def impl(force: str, *, seed: int = 19937) -> None:
         exploded.loc[group.index, "geometry"] = points.geometry.to_numpy()
 
     # to avoid issues with geopandas and pyarrow/parquet, use pandas to save the data (need to convert geometry to WKT)
-    exploded.geometry = shapely.to_wkt(exploded.geometry)
+    exploded["geometry"] = shapely.to_wkt(exploded["geometry"])
     exploded.to_parquet(data_dir() / f"{TABLE_NAME}_assigned_{tokenize_force_name(force)}.parquet", index=False)
 
 
