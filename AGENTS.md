@@ -74,13 +74,18 @@ anything that needs network access, a real data directory, or an API key.
 
 ## Developer Rules
 
-- **DO NOT READ `.env` FILES.** Never open, `cat`, `grep`, or otherwise read `.env`, `.env.*`, or
-  `.envrc` — in this repo, a parent directory, or anywhere else. They hold live credentials (API
-  keys, tokens, connection strings), and anything read lands in a conversation transcript that is
-  stored and may be processed downstream. This holds even when asked to "check the config" or debug
-  a credential problem: report what is missing by name and let the human inspect the value. The same
-  goes for any other secret store — `~/.aws/credentials`, `~/.ssh/`, `*.pem`, `secrets.*`. If a
-  secret does end up exposed, say so plainly and recommend rotating it.
+- **NEVER LET `.env` CONTENTS INTO THE PROMPT OR CONTEXT WINDOW.** Do not `cat`, `grep`, `Read`, or
+  otherwise open `.env`, `.env.*`, or `.envrc` — in this repo, a parent directory, or anywhere else
+  — such that their contents get echoed into a tool result or the conversation transcript. They hold
+  live credentials (API keys, tokens, connection strings), and anything read lands in a transcript
+  that is stored and may be processed downstream. This holds even when asked to "check the config" or
+  debug a credential problem: report what is missing by name and let the human inspect the value. The
+  same goes for any other secret store — `~/.aws/credentials`, `~/.ssh/`, `*.pem`, `secrets.*`.
+  Local tools and scripts are still allowed to *load* `.env` files at runtime themselves (e.g.
+  `uv run`, `python-dotenv`, direnv) without the values passing through the agent — that's normal and
+  expected; the constraint is on what ends up in the agent's own context, not on whether the process
+  under test can read its config. If `.env` contents (or any other secret) do end up exposed in the
+  conversation or transcript, say so plainly and immediately, and recommend rotating the credential.
 - **Runtime vs dev dependencies.** Runtime deps go in `[project.dependencies]`; tooling
   (`ruff`, `ty`, `pytest`, `pre-commit`, `datamodel-code-generator`) goes in
   `[dependency-groups.dev]`. New runtime deps need a strong justification — this is already a
