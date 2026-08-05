@@ -35,20 +35,26 @@ def default_url() -> str:
     return os.environ["SAFER_STREETS_API_URL"]
 
 
-def headers() -> dict[str, str | None]:
-    return {"x-api-key": os.getenv("SAFER_STREETS_API_KEY")}
+def headers() -> dict[str, str]:
+    api_key = os.getenv("SAFER_STREETS_API_KEY")
+    return {"x-api-key": api_key} if api_key is not None else {}
 
 
 def get(endpoint: str, *, url: str | None = None, params: dict[str, Any] | None = None) -> Any:
     """Returns the raw json from a get request"""
-    response = requests.get(f"{url or default_url()}/{endpoint}", params=params, headers=headers())  # ty:ignore[invalid-argument-type]
+    response = requests.get(f"{url or default_url()}/{endpoint}", params=params, headers=headers())
     _raise_for_status_with_context(response)
     return response.json()
 
 
-def post(endpoint: str, payload: Any, *, url: str | None = None) -> Any:
+def post(endpoint: str, payload: Any, *, params: dict[str, Any] | None = None, url: str | None = None) -> Any:
     """Returns the raw json from a post request"""
-    response = requests.post(f"{url or default_url()}/{endpoint}", json=payload, headers=headers())  # ty:ignore[invalid-argument-type]
+    response = requests.post(
+        f"{url or default_url()}/{endpoint}",
+        params=params,
+        json=payload,
+        headers=headers(),
+    )
     _raise_for_status_with_context(response)
     return response.json()
 

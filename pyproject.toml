@@ -38,21 +38,21 @@ cloud = "scripts.azure_sync:main"
 
 [dependency-groups]
 dev = [
-    "datamodel-code-generator>=0.32.0",
+    "pandas-stubs>=3.0.5.260730",
     "pre-commit>=4.6.0",
     "pytest>=9",
     "pytest-cov>=7",
     "ruff>=0.15.12",
-    "ty>=0.0.34",
+    "ty>=0.0.59",
+    "types-geopandas>=1.1.4.20260728",
 ]
-
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
-addopts = "--cov=src/safer_streets_core --cov-report html --cov-fail-under=65"
+addopts = "--cov=src/safer_streets_core --cov-report=html --cov-fail-under=80"
 
 [tool.ruff]
 line-length = 120
@@ -63,9 +63,3 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/test/*.py" = ["D103"]
-
-
-[tool.ty.rules]
-invalid-assignment = "ignore"
-unresolved-attribute = "ignore"
-no-matching-overload = "ignore"
