@@ -1,3 +1,4 @@
+import json
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -6,6 +7,7 @@ from zipfile import ZipFile
 
 import duckdb
 import geopandas as gpd
+import pyproj
 
 from safer_streets_core.utils import data_dir
 
@@ -140,18 +142,80 @@ def get_gdf(
     return gpd.GeoDataFrame(df.drop(columns=wkt_col), geometry=gpd.GeoSeries.from_wkt(df[wkt_col]), crs=crs)
 
 
-def write_geoparquet(con: duckdb.DuckDBPyConnection, query: str, out_path: Path) -> None:
+BNG = "EPSG:27700"
+
+# DuckDB's ST_GeometryType spelling → the casing the GeoParquet spec requires
+_GEOMETRY_TYPE_NAMES = {
+    "POINT": "Point",
+    "LINESTRING": "LineString",
+    "POLYGON": "Polygon",
+    "MULTIPOINT": "MultiPoint",
+    "MULTILINESTRING": "MultiLineString",
+    "MULTIPOLYGON": "MultiPolygon",
+    "GEOMETRYCOLLECTION": "GeometryCollection",
+}
+
+
+def _geometry_columns(con: duckdb.DuckDBPyConnection, query: str) -> list[str]:
+    """Names of every GEOMETRY column in ``query``, in order; empty if it has none."""
+    relation = con.sql(query)
+    return [
+        name for name, dtype in zip(relation.columns, relation.types, strict=True) if str(dtype).startswith("GEOMETRY")
+    ]
+
+
+def _geo_metadata(con: duckdb.DuckDBPyConnection, query: str, geom_cols: list[str], crs: str) -> str:
+    """The GeoParquet ``geo`` metadata for ``query``, matching DuckDB's own but naming the CRS.
+
+    Every geometry column is described, not just the primary one — ``schools`` carries both a point
+    ``geom`` and an ``isochrone`` polygon, and a column left out of this blob reads back as a plain
+    BLOB. ``geometry_types`` and the bounding box are recomputed rather than reused because
+    KV_METADATA replaces DuckDB's blob wholesale instead of merging into it; that costs one aggregate
+    pass, which table statistics make near-free for the ``SELECT * FROM <table>`` this is always given.
+    """
+    projjson = pyproj.CRS.from_user_input(crs).to_json_dict()
+    aggregates = ", ".join(
+        f'list(DISTINCT ST_GeometryType("{c}")), min(ST_XMin("{c}")), min(ST_YMin("{c}")), '
+        f'max(ST_XMax("{c}")), max(ST_YMax("{c}"))'
+        for c in geom_cols
+    )
+    row = con.execute(f"SELECT {aggregates} FROM ({query})").fetchone() or (None,) * (5 * len(geom_cols))
+
+    columns: dict[str, dict[str, object]] = {}
+    for i, name in enumerate(geom_cols):
+        types, xmin, ymin, xmax, ymax = row[5 * i : 5 * i + 5]
+        column: dict[str, object] = {
+            "encoding": "WKB",
+            "geometry_types": sorted({_GEOMETRY_TYPE_NAMES.get(t, t) for t in types or []}),
+            # PROJJSON, not "EPSG:27700": DuckDB's reader rejects the short form as an invalid CRS
+            "crs": projjson,
+        }
+        if None not in (xmin, ymin, xmax, ymax):
+            column["bbox"] = [xmin, ymin, xmax, ymax]
+        columns[name] = column
+    return json.dumps({"version": "1.0.0", "primary_column": geom_cols[0], "columns": columns})
+
+
+def write_geoparquet(con: duckdb.DuckDBPyConnection, query: str, out_path: Path, crs: str = BNG) -> None:
     """Dump ``query`` (a ``geom`` GEOMETRY column is written as GeoParquet WKB) to ``out_path``.
 
-    Geometry is British National Grid (EPSG:27700) by convention. The DuckDB GEOMETRY type carries no
-    CRS, so its native GeoParquet writer tags written geometry as ``OGC:CRS84``; that label is not
-    relied upon — the coordinates are the contract, and ``index_geometry_tables`` strips the CRS
-    qualifier back to a bare ``GEOMETRY`` on read.
+    Geometry is British National Grid (EPSG:27700) by convention, and the written file says so. The
+    DuckDB GEOMETRY type carries no CRS and its native GeoParquet writer omits the ``crs`` field
+    entirely — which the spec defines as meaning OGC:CRS84, so a BNG file read straight into geopandas
+    comes back claiming lon/lat while holding metres. The CRS is therefore stamped in explicitly here;
+    ``index_geometry_tables`` still strips the qualifier back to a bare ``GEOMETRY`` on read.
 
     A temp file is written then moved into place so a crash never leaves a half-written parquet.
     """
     tmp = out_path.with_suffix(out_path.suffix + ".tmp")
-    con.execute(f"COPY ({query}) TO '{tmp}' (FORMAT parquet);")
+    geom_cols = _geometry_columns(con, query)
+    if geom_cols:
+        con.execute(
+            f"COPY ({query}) TO '{tmp}' (FORMAT parquet, KV_METADATA {{geo: ?}});",
+            [_geo_metadata(con, query, geom_cols, crs)],
+        )
+    else:
+        con.execute(f"COPY ({query}) TO '{tmp}' (FORMAT parquet);")
     tmp.replace(out_path)
 
 

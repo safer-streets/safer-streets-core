@@ -1,9 +1,11 @@
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import duckdb
 import geopandas as gpd
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 
 from safer_streets_core.database import (
@@ -230,6 +232,110 @@ class TestGeoparquetRoundTrip:
     def test_read_geoparquet_sql(self):
         path = Path("/data/x.parquet")
         assert read_geoparquet(path) == f"SELECT * FROM read_parquet('{path}')"
+
+    def test_geopandas_reads_back_bng_not_crs84(self, tmp_path):
+        """The written file names its CRS; without it geopandas assumes OGC:CRS84 and mislabels BNG."""
+        try:
+            con = duckdb_connector(writeable=True)
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        con.execute("CREATE TABLE src AS SELECT 1 AS id, ST_Point(500000, 200000) AS geom;")
+        out = tmp_path / "out.parquet"
+        write_geoparquet(con, "SELECT * FROM src", out)
+
+        gdf = gpd.read_parquet(out)
+        assert gdf.crs is not None
+        assert gdf.crs.to_epsg() == 27700
+        assert (gdf.geometry[0].x, gdf.geometry[0].y) == (500000, 200000)
+        con.close()
+
+    def test_crs_override_is_honoured(self, tmp_path):
+        try:
+            con = duckdb_connector(writeable=True)
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        con.execute("CREATE TABLE src AS SELECT ST_Point(-1.5, 53.8) AS geom;")
+        out = tmp_path / "wgs84.parquet"
+        write_geoparquet(con, "SELECT * FROM src", out, crs="EPSG:4326")
+        crs = gpd.read_parquet(out).crs
+        assert crs is not None and crs.to_epsg() == 4326
+        con.close()
+
+    def test_geo_metadata_records_types_and_bbox(self, tmp_path):
+        """geometry_types uses the spec's casing, not DuckDB's, and the bbox survives KV_METADATA."""
+        try:
+            con = duckdb_connector(writeable=True)
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        con.execute("""
+            CREATE TABLE src AS
+            SELECT ST_Point(400000, 100000) AS geom UNION ALL SELECT ST_Point(500000, 200000);
+        """)
+        out = tmp_path / "out.parquet"
+        write_geoparquet(con, "SELECT * FROM src", out)
+
+        geo = json.loads(pq.read_schema(out).metadata[b"geo"])
+        assert geo["primary_column"] == "geom"
+        assert geo["columns"]["geom"]["geometry_types"] == ["Point"]
+        assert geo["columns"]["geom"]["bbox"] == [400000, 100000, 500000, 200000]
+        con.close()
+
+    def test_empty_geometry_table_omits_bbox(self, tmp_path):
+        """An empty result has no extent; the bbox key is dropped rather than written as nulls."""
+        try:
+            con = duckdb_connector(writeable=True)
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        con.execute("CREATE TABLE src AS SELECT ST_Point(1, 2) AS geom WHERE false;")
+        out = tmp_path / "empty.parquet"
+        write_geoparquet(con, "SELECT * FROM src", out)
+
+        geo = json.loads(pq.read_schema(out).metadata[b"geo"])
+        assert "bbox" not in geo["columns"]["geom"]
+        assert geo["columns"]["geom"]["geometry_types"] == []
+        crs = gpd.read_parquet(out).crs
+        assert crs is not None and crs.to_epsg() == 27700
+        con.close()
+
+    def test_every_geometry_column_is_described(self, tmp_path):
+        """schools carries both geom and isochrone; a column missing from the blob reads back as BLOB."""
+        try:
+            con = duckdb_connector(writeable=True)
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        con.execute("""
+            CREATE TABLE src AS
+            SELECT 1 AS urn, ST_Point(400000, 100000) AS geom,
+                   ST_Buffer(ST_Point(400000, 100000), 10) AS isochrone;
+        """)
+        out = tmp_path / "two.parquet"
+        write_geoparquet(con, "SELECT * FROM src", out)
+
+        geo = json.loads(pq.read_schema(out).metadata[b"geo"])
+        assert set(geo["columns"]) == {"geom", "isochrone"}
+        assert geo["primary_column"] == "geom"
+
+        con.execute(f"CREATE TABLE back AS {read_geoparquet(out)}")
+        types = con.execute("SELECT ST_GeometryType(geom), ST_GeometryType(isochrone) FROM back").fetchone()
+        assert types == ("POINT", "POLYGON")
+        con.close()
+
+    def test_non_geometry_query_writes_plain_parquet(self, tmp_path):
+        """No GEOMETRY column means no geo metadata at all — not an empty or bogus one."""
+        try:
+            con = duckdb_connector(writeable=True)
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        out = tmp_path / "plain.parquet"
+        write_geoparquet(con, "SELECT 1 AS x", out)
+        assert b"geo" not in (pq.read_schema(out).metadata or {})
+        con.close()
 
 
 class TestIndexGeometryTables:
