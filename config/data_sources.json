@@ -3,13 +3,13 @@
     "base_url": "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services",
     "layers": {
       "pfa": {
-        "label": "Police Force Areas (Dec 2023, EW, BGC)",
-        "endpoint": "/Police_Force_Areas_December_2023_EW_BGC/FeatureServer/0/query",
-        "id_field": "PFA23CD",
-        "name_field": "PFA23NM",
-        "filename": "police_force_areas_dec2023_ew_bgc",
+        "label": "Police Force Areas (Dec 2024, EW, BFE)",
+        "endpoint": "/Police_Force_Areas_Dec_2024_EW_BFE/FeatureServer/0/query",
+        "id_field": "PFA24CD",
+        "name_field": "PFA24NM",
+        "filename": "police_force_areas_dec2024_ew_bfe",
         "table": "police_force_areas",
-        "note": "England & Wales only"
+        "note": "England & Wales only; BFE = full resolution, extent of the realm (not clipped to the coastline)"
       },
       "lad": {
         "label": "Local Authority Districts (May 2024, UK, BGC)",
