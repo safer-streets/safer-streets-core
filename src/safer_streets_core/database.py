@@ -1,6 +1,6 @@
 import json
 import os
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from zipfile import ZipFile
@@ -9,6 +9,7 @@ import duckdb
 import geopandas as gpd
 import pyproj
 
+from safer_streets_core.config import AzureSettings
 from safer_streets_core.utils import data_dir
 
 
@@ -27,7 +28,10 @@ def _enable_azure(con: duckdb.DuckDBPyConnection) -> None:
     -- force the curl transport, otherwise the default transport fails to locate the SSL CA bundle
     SET azure_transport_option_type = 'curl';
     """)
-    con.execute("SET azure_storage_connection_string = ?", (os.environ["AZURE_STORAGE_CONNSTR"],))
+    con.execute(
+        "SET azure_storage_connection_string = ?",
+        (AzureSettings().azure_storage_connstr.get_secret_value(),),
+    )
 
 
 def duckdb_connector(
@@ -64,7 +68,7 @@ def duckdb_connector(
 @contextmanager
 def duckdb_context(
     db: Path | None = None, *, azure: bool = False, writeable: bool = False
-) -> Iterator[duckdb.DuckDBPyConnection]:
+) -> Generator[duckdb.DuckDBPyConnection]:
     """
     Context managed DB connection.
     Limited usefulness for in-memory databases as DB will exist only within the context

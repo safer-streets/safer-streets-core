@@ -6,10 +6,15 @@ import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.projections.polar import PolarAxes
+from xyzservices import providers as xyz_providers
+
+from safer_streets_core.config import CartoSettings
 
 DEFAULT_COLOUR = "#356285"
 
-DEFAULT_MAP_TILES = "CartoDB Positron"
+_carto_api_key = CartoSettings().carto_api_key
+_carto_kwargs = {"apikey": _carto_api_key.get_secret_value()} if _carto_api_key else {}
+DEFAULT_MAP_TILES = xyz_providers.CartoDB.Positron(**_carto_kwargs)
 
 
 def make_radar_chart(
@@ -49,7 +54,12 @@ def make_radar_chart(
 
 
 def make_radar_chart2(
-    fig: Figure, pos: int, data: pd.DataFrame, *, title: str | None = None, r_ticks: list[float | int] | None = None
+    fig: Figure,
+    pos: int,
+    data: pd.DataFrame,
+    *,
+    title: str | None = None,
+    r_ticks: list[float | int] | None = None,
 ) -> Axes:
     """
     r is rows, theta is columns

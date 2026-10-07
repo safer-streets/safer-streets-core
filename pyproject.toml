@@ -16,7 +16,6 @@ dependencies = [
     "pandas>=3",
     "pyarrow>=21.0.0",
     "pydantic>=2.11.7",
-    "python-dotenv>=1.1.1",
     "requests>=2.32.4",
     "scipy>=1.16.1",
     "shapely>=2.1.1",
@@ -29,6 +28,9 @@ dependencies = [
     "odfpy>=1.4.1",
     "overturemaps>=1.0.0",
     "networkx>=3.6.1",
+    "pydantic-settings>=2.15.0",
+    "xyzservices>=2026.9.1",
+    "python-dotenv>=1.2.2",
 ]
 
 [project.scripts]
