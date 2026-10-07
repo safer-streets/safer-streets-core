@@ -1,6 +1,6 @@
 import json
 import os
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from zipfile import ZipFile
@@ -68,7 +68,7 @@ def duckdb_connector(
 @contextmanager
 def duckdb_context(
     db: Path | None = None, *, azure: bool = False, writeable: bool = False
-) -> Iterator[duckdb.DuckDBPyConnection]:
+) -> Generator[duckdb.DuckDBPyConnection]:
     """
     Context managed DB connection.
     Limited usefulness for in-memory databases as DB will exist only within the context

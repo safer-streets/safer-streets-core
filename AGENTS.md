@@ -164,7 +164,7 @@ src/
 config/
   data_sources.json    # remote URLs, cached filenames, layer hints
 .github/workflows/
-  lint-test.yml        # CI: lint + type check + test matrix + wheel/coverage artifacts
+  lint-test.yml        # CI: lint + type check + test matrix + coverage artifact
 README.md
 pyproject.toml
 .pre-commit-config.yaml
@@ -174,8 +174,8 @@ pyproject.toml
 
 - **`main` is branch-protected.** Direct pushes are blocked; all changes go through a pull request
   targeting `main`. CI (all OS combinations) must pass before merging.
-- CI on `main` (and tags) builds a wheel and uploads it, plus the HTML coverage report, as
-  artifacts ([lint-test.yml](.github/workflows/lint-test.yml)). There is currently no automated
+- CI uploads the HTML coverage report (from the ubuntu job) as an artifact
+  ([lint-test.yml](.github/workflows/lint-test.yml)). No wheel is built and there is no automated
   PyPI publish.
 - Version bumps go in [pyproject.toml](pyproject.toml) (`version = "x.y.z"`).
 

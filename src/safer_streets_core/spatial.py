@@ -127,7 +127,7 @@ def get_census_boundaries(
         # Drop boundaries that adjoin the overlapping area (but might overlap slightly due to rounding errors)
         joined = boundaries.sjoin(overlapping[["geometry"]], how="inner", predicate="intersects")
         # Calculate intersection area as a fraction of the boundary's area
-        intersection = joined.geometry.intersection(overlapping.unary_union)
+        intersection = joined.geometry.intersection(overlapping.union_all())
         # Drop any without significant overlap
         boundaries = joined[intersection.area / joined.geometry.area > 0.01].drop(
             columns=["index_right", "GlobalID"], errors="ignore"
