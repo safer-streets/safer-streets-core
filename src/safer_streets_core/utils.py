@@ -1,5 +1,4 @@
 import json
-import os
 import warnings
 from calendar import monthrange
 from collections.abc import Iterable, Iterator
@@ -14,10 +13,10 @@ import humanleague as hl
 import numpy as np
 import pandas as pd
 import requests
-from dotenv import load_dotenv
 from itrx import Itr
 from shapely import Polygon
 
+from safer_streets_core.config import BlobStorageSettings, LocalDataSettings
 from safer_streets_core.models import Neighbourhoods, RawPolygon
 
 CrimeType = Literal[
@@ -108,15 +107,13 @@ def fix_force_name(force: Force) -> str:
 @cache
 def data_dir() -> Path:
     """Returns the data folder path or raises an error if not set"""
-    load_dotenv()
-    return Path(os.environ["SAFER_STREETS_DATA_DIR"])
+    return LocalDataSettings().safer_streets_data_dir
 
 
 @cache
 def blob_storage_url() -> str:
     """Azure Blob Storage account URL, from the SAFER_STREETS_BLOB_STORAGE env var."""
-    load_dotenv()
-    return os.environ["SAFER_STREETS_BLOB_STORAGE"]
+    return BlobStorageSettings().safer_streets_blob_storage
 
 
 @cache

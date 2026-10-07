@@ -2,7 +2,6 @@
 #   filename:  top_level_geogs.json
 #   timestamp: 2025-06-05T07:10:04+00:00
 
-import os
 from collections.abc import Iterable
 from functools import cache
 from hashlib import md5
@@ -12,9 +11,9 @@ from typing import Any
 
 import pandas as pd
 import requests
-from dotenv import load_dotenv
 from pydantic import BaseModel
 
+from safer_streets_core.config import NomisSettings
 from safer_streets_core.utils import data_dir
 
 
@@ -174,8 +173,7 @@ BASE_URL = "https://www.nomisweb.co.uk/api/v01"
 
 @cache
 def api_key() -> dict[str, str]:
-    load_dotenv()
-    return {"uid": os.environ["NOMIS_API_KEY"]}
+    return {"uid": NomisSettings().nomis_api_key.get_secret_value()}
 
 
 def fetch(endpoint: str, **params: str) -> dict[str, Any]:
