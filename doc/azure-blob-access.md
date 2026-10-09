@@ -8,17 +8,25 @@ Blobs in the `saferstreets` storage account could be downloaded by anyone, with 
 curl https://saferstreets.blob.core.windows.net/phase2/index.parquet --output test.parquet
 ```
 
-Requirement: only specific users should be able to read the data, and the existing
-`AZURE_STORAGE_CONNSTR` connection string must keep working.
+Requirement: no anonymous access, and two tiers of restricted access, each given as a connection string
+that works with both pandas and DuckDB:
+
+- **read-only**, for the specific users who need to read the data
+- **read-write**, for a smaller group who also write the data
+
+The existing `AZURE_STORAGE_CONNSTR` variable must keep working for code that reads data.
 
 ## Connection strings
 
-Since these changes, `safer-streets/.env` holds two connection strings:
+Since these changes, `safer-streets/.env` holds one connection string per tier:
 
-| Variable                      | Contents                                    | Access                                               | Used for |
-|-------------------------------|---------------------------------------------|------------------------------------------------------|----------|
-| `AZURE_STORAGE_CONNSTR`       | read-only SAS (`readers` policy on `phase2`) | read and list `phase2` only, expires 2028-03-31      | all code that reads data (`safer_streets_core`, eda notebooks, peer-hex-explorer, etc.) |
-| `AZURE_STORAGE_ADMIN_CONNSTR` | account key                                 | full read, write and delete on the whole account     | admin only: SAS policies and tokens, container settings |
+| Variable                      | Tier       | Contents                                     | Access                                           | Used for |
+|-------------------------------|------------|----------------------------------------------|--------------------------------------------------|----------|
+| `AZURE_STORAGE_CONNSTR`       | read-only  | SAS (`readers` policy on `phase2`)           | read and list `phase2` only, expires 2028-03-31  | all code that reads data (`safer_streets_core`, eda notebooks, peer-hex-explorer, etc.) |
+| `AZURE_STORAGE_ADMIN_CONNSTR` | read-write | account key                                  | full read, write and delete on the whole account | writing data, and admin: SAS policies and tokens, container settings |
+
+Both work with pandas (`storage_options={"connection_string": ...}`) and DuckDB (`CREATE SECRET` or
+`SET azure_storage_connection_string`); see [Usage](#usage).
 
 When the work below was done, the account-key string was still called `AZURE_STORAGE_CONNSTR`. The
 commands in this document now use `AZURE_STORAGE_ADMIN_CONNSTR` wherever they need the account key.
@@ -164,6 +172,9 @@ df = con.sql("SELECT * FROM read_parquet('az://phase2/index.parquet')").df()
 ```
 
 `safer_streets_core.database.duckdb_connector(azure=True)` also works unchanged with the SAS string.
+
+The read-write tier uses the same code with `AZURE_STORAGE_ADMIN_CONNSTR` in place of
+`AZURE_STORAGE_CONNSTR`.
 
 ### Verification (2026-10-09)
 
