@@ -12,10 +12,16 @@ import pyproj
 from safer_streets_core.config import AzureSettings
 from safer_streets_core.utils import data_dir
 
+_LOAD_SPATIAL = """
+    INSTALL spatial;LOAD spatial;
+    -- ST_Transform otherwise follows the EPSG axis order, so EPSG:4326 comes out as lat/lon
+    SET geometry_always_xy = true;
+"""
+
 
 def _load_extensions(con: duckdb.DuckDBPyConnection) -> None:
-    con.execute("""
-    INSTALL spatial;LOAD spatial;
+    con.execute(f"""
+    {_LOAD_SPATIAL}
     INSTALL vss;LOAD vss;
     INSTALL h3 FROM community;LOAD h3;
     """)
@@ -94,7 +100,7 @@ def motherduck_connector(db: str, *, writeable: bool = False) -> duckdb.DuckDBPy
         raise OSError(f"{token_var} not set")
     con = duckdb.connect(database=f"md:{db}?motherduck_token={token}")
     try:
-        con.execute("INSTALL spatial;LOAD spatial;")
+        con.execute(_LOAD_SPATIAL)
         return con
     except Exception:
         con.close()
@@ -129,24 +135,26 @@ def add_table_from_shapefile(
     )
 
 
+BNG = "EPSG:27700"
+
+
 def get_gdf(
     con: duckdb.DuckDBPyConnection,
     query: str,
     *,
-    wkt_col: str = "wkt",
-    crs="EPSG:27700",
+    crs: str = BNG,
     **kwargs,
 ) -> gpd.GeoDataFrame:
     """
-    Runs a query returning a dataframe and converts to GeoDataFrame
-    SQL should generate a geometry column matching wkt_col
-    By default assumes BNG CRS
+    Runs a query returning at least one GEOMETRY column and converts the result to a GeoDataFrame.
+
+    A CRS-qualified column (e.g. GEOMETRY('EPSG:4326')) keeps its own CRS. A bare GEOMETRY — computed
+    geometry such as ST_Point or a 3-arg ST_Transform — carries none, so ``crs`` (BNG by default) is
+    assigned instead.
     """
-    df = con.sql(query, **kwargs).df()
-    return gpd.GeoDataFrame(df.drop(columns=wkt_col), geometry=gpd.GeoSeries.from_wkt(df[wkt_col]), crs=crs)
+    gdf = gpd.GeoDataFrame.from_arrow(con.sql(query, **kwargs).arrow())
+    return gdf if gdf.crs is not None else gdf.set_crs(crs)
 
-
-BNG = "EPSG:27700"
 
 # DuckDB's ST_GeometryType spelling → the casing the GeoParquet spec requires
 _GEOMETRY_TYPE_NAMES = {
@@ -207,11 +215,11 @@ def _geo_metadata(con: duckdb.DuckDBPyConnection, query: str, geom_cols: list[st
 def write_geoparquet(con: duckdb.DuckDBPyConnection, query: str, out_path: Path, crs: str = BNG) -> None:
     """Dump ``query`` (a ``geom`` GEOMETRY column is written as GeoParquet WKB) to ``out_path``.
 
-    Geometry is British National Grid (EPSG:27700) by convention, and the written file says so. The
-    DuckDB GEOMETRY type carries no CRS and its native GeoParquet writer omits the ``crs`` field
-    entirely — which the spec defines as meaning OGC:CRS84, so a BNG file read straight into geopandas
-    comes back claiming lon/lat while holding metres. The CRS is therefore stamped in explicitly here;
-    ``index_geometry_tables`` still strips the qualifier back to a bare ``GEOMETRY`` on read.
+    Geometry is British National Grid (EPSG:27700) by convention, and the written file says so. DuckDB's
+    native writer is not relied on for that: for a bare GEOMETRY it writes ``"crs": null`` — which the
+    spec defines as OGC:CRS84, so a BNG file comes back claiming lon/lat while holding metres — and for an
+    empty result it writes no geo metadata at all, so the column reads back as BLOB. The metadata is
+    therefore written explicitly here.
 
     A temp file is written then moved into place so a crash never leaves a half-written parquet.
     """
@@ -228,7 +236,7 @@ def write_geoparquet(con: duckdb.DuckDBPyConnection, query: str, out_path: Path,
 
 
 def read_geoparquet(path: Path) -> str:
-    """SQL reading a dataset parquet back; a ``geom`` column returns as GEOMETRY directly (BNG assumed).
+    """SQL reading a dataset parquet back; geometry columns return as GEOMETRY typed with the file's CRS.
 
     Wrap in ``CREATE [OR REPLACE] TABLE <name> AS <this>`` to materialise it.
     """
@@ -246,11 +254,13 @@ def index_geometry_tables(
 ) -> None:
     """
     For every table with a 'geom' column (except those in `exclude`), repair invalid
-    geometries with ST_MakeValid and create an RTree spatial index. Idempotent — safe
-    to call repeatedly.
+    geometries with ST_MakeValid, label a bare GEOMETRY column as BNG, and create an RTree
+    spatial index. Idempotent — safe to call repeatedly.
 
     Invalid polygons (e.g. self-intersecting boundaries) otherwise break spatial
-    predicates like ST_Intersects; the RTree index then accelerates those joins.
+    predicates like ST_Intersects; the RTree index then accelerates those joins. With every
+    stored column CRS-qualified, DuckDB refuses to mix CRSs and the CRS reaches GeoPandas and
+    GeoParquet without being re-asserted.
     """
     tables = [
         (row[0], row[1])
@@ -268,10 +278,12 @@ def index_geometry_tables(
     for table, geom_type in tables:
         # only rewrite rows that are actually invalid (NULL geoms are left as-is)
         con.execute(f'UPDATE "{table}" SET geom = ST_MakeValid(geom) WHERE geom IS NOT NULL AND NOT ST_IsValid(geom);')
-        # ST_Read yields a CRS-qualified type like GEOMETRY('EPSG:27700'); RTree needs a bare
-        # GEOMETRY. Stripping the type qualifier leaves the (BNG) coordinates unchanged.
-        if geom_type != "GEOMETRY":
-            con.execute(f'ALTER TABLE "{table}" ALTER COLUMN geom TYPE GEOMETRY;')
+        # computed geometry (ST_Point, 3-arg ST_Transform) is bare; ST_Read and our own geoparquet already
+        # carry a CRS, which is left alone. A database indexed before columns were labelled has an RTree on the
+        # bare column, which blocks the type change; it is rebuilt below.
+        if geom_type == "GEOMETRY":
+            con.execute(f'DROP INDEX IF EXISTS "{table}_geom_rtree";')
+            con.execute(f"""ALTER TABLE "{table}" ALTER COLUMN geom TYPE GEOMETRY('{BNG}');""")
         con.execute(f'CREATE INDEX IF NOT EXISTS "{table}_geom_rtree" ON "{table}" USING RTREE (geom);')
 
 
