@@ -40,6 +40,12 @@ class AzureAdminSettings(_EnvSettings):
     azure_storage_admin_connstr: SecretStr
 
 
+class AzureServicePrincipalSettings(_EnvSettings):
+    azure_tenant_id: str
+    azure_client_id: str
+    azure_client_secret: SecretStr
+
+
 class NomisSettings(_EnvSettings):
     nomis_api_key: SecretStr
 

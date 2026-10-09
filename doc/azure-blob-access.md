@@ -214,10 +214,16 @@ Store the connection string in `.env` (which is git-ignored), never in a tracked
 
 ## `data sync` check
 
-`data sync` (safer-streets-tooling) doesn't use `AZURE_STORAGE_CONNSTR`. It uses
-`DefaultAzureCredential` (the service principal in `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` /
-`AZURE_CLIENT_SECRET`), which signs in through Azure AD. Neither the container change nor the
-account-level change affects that.
+`data sync` (safer-streets-tooling) doesn't use `AZURE_STORAGE_CONNSTR`. It signs in through Azure AD
+as the service principal in `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET`. Neither the
+container change nor the account-level change affects that.
+
+`AzureBlobStorage` builds that credential explicitly from settings (`service_principal_credential`), so
+the variables can come from `.env`. It used to use `DefaultAzureCredential`, which reads only
+`os.environ`. That worked while `load_dotenv()` exported `.env` there, but after the switch to
+pydantic-settings the credential chain fell through to the `az login` user, and `sync` failed with
+`AuthorizationPermissionMismatch`. The check below presumably had the variables in its environment
+already, so it didn't catch this.
 
 Checked on 2026-10-09 after both changes. The test used `AzureBlobStorage(blob_storage_url(), "phase2",
 readonly=False)`, the same client `sync` uses, with `AZURE_STORAGE_CONNSTR` unset:

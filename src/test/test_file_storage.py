@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 from azure.core.exceptions import ResourceNotFoundError
+from azure.identity import AzureCliCredential, ClientSecretCredential
+from pydantic import ValidationError
 
 from safer_streets_core.file_storage import (
     SRC_MTIME_KEY,
@@ -14,6 +16,7 @@ from safer_streets_core.file_storage import (
     LocalFileStorage,
     UpdatePolicy,
     blob_mtime,
+    service_principal_credential,
 )
 
 
@@ -130,10 +133,45 @@ class FakeContainerClient:
 
 @pytest.fixture
 def fake_client(monkeypatch):
-    monkeypatch.setattr("safer_streets_core.file_storage.DefaultAzureCredential", lambda: "fake-credential")
+    monkeypatch.setattr("safer_streets_core.file_storage.service_principal_credential", lambda: "fake-credential")
     monkeypatch.setattr("safer_streets_core.file_storage.ContainerClient", FakeContainerClient)
     store = AzureBlobStorage("https://example.blob.core.windows.net", "mycontainer")
     return store
+
+
+@pytest.fixture
+def no_service_principal_env(monkeypatch, tmp_path):
+    """No service principal in the environment, and a working directory whose only .env is the test's own."""
+    for var in ("AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def test_service_principal_is_read_from_env_file_not_os_environ(no_service_principal_env):
+    """The credential comes from .env via settings, so it works even though .env is never exported to os.environ
+    (which is all DefaultAzureCredential would have looked at)."""
+    (no_service_principal_env / ".env").write_text(
+        "AZURE_TENANT_ID=tenant\nAZURE_CLIENT_ID=client\nAZURE_CLIENT_SECRET=secret\n"
+    )
+    credential = service_principal_credential()
+    assert isinstance(credential, ClientSecretCredential)
+    assert credential._tenant_id == "tenant"
+    assert credential._client_id == "client"
+
+
+def test_missing_service_principal_variable_is_named(no_service_principal_env):
+    """A missing variable fails at construction, naming it, rather than falling back to another identity."""
+    (no_service_principal_env / ".env").write_text("AZURE_TENANT_ID=tenant\nAZURE_CLIENT_ID=client\n")
+    with pytest.raises(ValidationError, match="azure_client_secret"):
+        AzureBlobStorage("https://example.blob.core.windows.net", "mycontainer")
+
+
+def test_explicit_credential_overrides_the_service_principal(monkeypatch, no_service_principal_env):
+    monkeypatch.setattr("safer_streets_core.file_storage.ContainerClient", FakeContainerClient)
+    cli = AzureCliCredential()
+    store = AzureBlobStorage("https://example.blob.core.windows.net", "mycontainer", credential=cli)
+    assert store._credential is cli
 
 
 class TestAzureBlobStorage:

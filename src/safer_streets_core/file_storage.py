@@ -4,11 +4,13 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Protocol
 
+from azure.core.credentials import TokenCredential
 from azure.core.exceptions import ResourceNotFoundError
-from azure.identity import DefaultAzureCredential
+from azure.identity import ClientSecretCredential
 from azure.storage.blob import ContainerClient
 from itrx import Itr
 
+from safer_streets_core.config import AzureServicePrincipalSettings
 from safer_streets_core.utils import data_dir
 
 # TODO? async https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-upload-python#upload-blobs-asynchronously
@@ -83,16 +85,29 @@ class LocalFileStorage:
         raise NotImplementedError("LocalFileStorage only supports readonly access")
 
 
+def service_principal_credential() -> ClientSecretCredential:
+    """The service principal in AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET (environment or .env).
+
+    Built explicitly from settings rather than via DefaultAzureCredential, which reads os.environ only: the
+    settings read .env without exporting it, so the chain would silently fall through to another identity
+    (e.g. ``az login``) and fail later with a permission error instead of naming the missing variable now.
+    """
+    settings = AzureServicePrincipalSettings()
+    return ClientSecretCredential(
+        settings.azure_tenant_id, settings.azure_client_id, settings.azure_client_secret.get_secret_value()
+    )
+
+
 class AzureBlobStorage:
     """
-    Uses a service principal, credentials should be stored in .env:
-    AZURE_CLIENT_ID
-    AZURE_CLIENT_SECRET
-    AZURE_TENANT_ID
+    Authenticates with the service principal (see ``service_principal_credential``) unless another
+    ``credential`` is given, e.g. ``AzureCliCredential()`` to act as the ``az login`` user.
     """
 
-    def __init__(self, account_url: str, container: str, readonly: bool = True) -> None:
-        self._credential = DefaultAzureCredential()
+    def __init__(
+        self, account_url: str, container: str, readonly: bool = True, credential: TokenCredential | None = None
+    ) -> None:
+        self._credential = credential or service_principal_credential()
         self._client = ContainerClient(account_url, container, self._credential)
 
     def list(self, startswith: str | None = None) -> Itr[str]:
