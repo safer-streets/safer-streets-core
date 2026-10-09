@@ -31,11 +31,7 @@ CLI entry points (defined under `[project.scripts]` in [pyproject.toml](pyprojec
 | Command | Module | Role |
 | ------- | ------ | ---- |
 | `extract` | [extract.py](src/scripts/extract.py) | Download and load police.uk street-level crime data |
-| `assign-population` | [assign_population.py](src/scripts/assign_population.py) | Redistribute census population to other spatial units |
 | `cloud` | [azure_sync.py](src/scripts/azure_sync.py) | Sync data to/from Azure Blob storage |
-
-Other pipeline pieces: [ons_boundaries.py](src/scripts/ons_boundaries.py) (ONS boundary downloads)
-and [ew_hex200.py](src/scripts/ew_hex200.py) (200 m hex grid over England & Wales).
 
 Data source locations (URLs, cached filenames, layer hints) live in
 [config/data_sources.json](config/data_sources.json), read via `utils.data_source`. Tests are in
@@ -156,10 +152,7 @@ src/
     py.typed           # PEP 561 marker
   scripts/
     extract.py         # `extract` — police.uk crime data
-    assign_population.py# `assign-population` — population redistribution
     azure_sync.py      # `cloud` — Azure Blob sync
-    ons_boundaries.py  # ONS boundary downloads
-    ew_hex200.py       # 200m hex grid over England & Wales
   test/                # pytest suite (one test_*.py per module)
 config/
   data_sources.json    # remote URLs, cached filenames, layer hints

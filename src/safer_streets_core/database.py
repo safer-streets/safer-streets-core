@@ -176,6 +176,10 @@ def _geo_metadata(con: duckdb.DuckDBPyConnection, query: str, geom_cols: list[st
     BLOB. ``geometry_types`` and the bounding box are recomputed rather than reused because
     KV_METADATA replaces DuckDB's blob wholesale instead of merging into it; that costs one aggregate
     pass, which table statistics make near-free for the ``SELECT * FROM <table>`` this is always given.
+
+    A NULL geometry is legal in a GeoParquet column and contributes no type, so the NULL element
+    ``list(DISTINCT ST_GeometryType(...))`` returns for one is dropped: ``crime_data`` keeps the
+    police.uk crimes recorded without coordinates, and sorting NULL among the names would raise.
     """
     projjson = pyproj.CRS.from_user_input(crs).to_json_dict()
     aggregates = ", ".join(
@@ -190,7 +194,7 @@ def _geo_metadata(con: duckdb.DuckDBPyConnection, query: str, geom_cols: list[st
         types, xmin, ymin, xmax, ymax = row[5 * i : 5 * i + 5]
         column: dict[str, object] = {
             "encoding": "WKB",
-            "geometry_types": sorted({_GEOMETRY_TYPE_NAMES.get(t, t) for t in types or []}),
+            "geometry_types": sorted({_GEOMETRY_TYPE_NAMES.get(t, t) for t in types or [] if t is not None}),
             # PROJJSON, not "EPSG:27700": DuckDB's reader rejects the short form as an invalid CRS
             "crs": projjson,
         }

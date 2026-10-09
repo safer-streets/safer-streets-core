@@ -1,3 +1,5 @@
+from warnings import deprecated
+
 import typer
 
 from safer_streets_core.file_storage import AzureBlobStorage, UpdatePolicy
@@ -66,9 +68,10 @@ def _callback():
     pass
 
 
+@deprecated("local-cloud data synchronisation is now handled by the 'data' command in safer-streets-tooling")
 def main() -> None:
     app()
 
 
 if __name__ == "__main__":
-    main()
+    main()  # ty: ignore[deprecated]

@@ -1,6 +1,7 @@
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated
+from warnings import deprecated
 from zipfile import ZipFile
 
 import pandas as pd
@@ -133,9 +134,10 @@ def summary(years: Annotated[int, typer.Option(min=1)] = 4) -> None:
     typer.echo(pd.concat(results, axis=1).fillna(0).astype(int))
 
 
+@deprecated("crime data extraction is now handled by the 'data' command in safer-streets-tooling")
 def main() -> None:
     app()
 
 
 if __name__ == "__main__":
-    main()
+    main()  # ty: ignore[deprecated]

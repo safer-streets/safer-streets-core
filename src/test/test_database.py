@@ -301,6 +301,26 @@ class TestGeoparquetRoundTrip:
         assert crs is not None and crs.to_epsg() == 27700
         con.close()
 
+    def test_null_geometry_is_not_a_geometry_type(self, tmp_path):
+        """A NULL geometry contributes no type — crime_data keeps the crimes police.uk gives no
+        coordinates for, and ST_GeometryType returns NULL for each of them."""
+        try:
+            con = duckdb_connector(writeable=True)
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        con.execute("""
+            CREATE TABLE src AS
+            SELECT ST_Point(400000, 100000) AS geom UNION ALL SELECT NULL;
+        """)
+        out = tmp_path / "nulls.parquet"
+        write_geoparquet(con, "SELECT * FROM src", out)
+
+        geo = json.loads(pq.read_schema(out).metadata[b"geo"])
+        assert geo["columns"]["geom"]["geometry_types"] == ["Point"]
+        assert geo["columns"]["geom"]["bbox"] == [400000, 100000, 400000, 100000]
+        con.close()
+
     def test_every_geometry_column_is_described(self, tmp_path):
         """schools carries both geom and isochrone; a column missing from the blob reads back as BLOB."""
         try:
