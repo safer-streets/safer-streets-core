@@ -23,6 +23,7 @@ Configuration is read from environment variables (or the nearest `.env` file) vi
 | `SAFER_STREETS_DATA_DIR` | Local data directory |
 | `SAFER_STREETS_BLOB_STORAGE` | Azure Blob storage URL |
 | `AZURE_STORAGE_CONNSTR` / `AZURE_STORAGE_ADMIN_CONNSTR` | Azure Blob read / write access |
+| `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` | Service principal for `AzureBlobStorage` |
 | `NOMIS_API_KEY` | Nomisweb census API |
 | `CARTO_API_KEY` | Carto (optional) |
 
