@@ -14,16 +14,25 @@ that works with both pandas and DuckDB:
 - **read-only**, for the specific users who need to read the data
 - **read-write**, for a smaller group who also write the data
 
-The existing `AZURE_STORAGE_CONNSTR` variable must keep working for code that reads data.
+The existing `AZURE_STORAGE_CONNSTR` variable must keep working for code that accesses data.
+
+Use cases:
+
+| Use case                                  | Tier       | Notes |
+|-------------------------------------------|------------|-------|
+| Notebooks (EDA)                           | read-only  | pandas / DuckDB reading `az://phase2/...` |
+| Apps: Streamlit                           | read-only  | connection string held server-side, e.g. in the app's secrets |
+| Apps: explorer (WASM)                     | read-only  | runs in the browser, so any string it is given is visible to its users |
+| ETL (safer-streets-tooling)               | read-write | builds and uploads the data |
 
 ## Connection strings
 
-Since these changes, `safer-streets/.env` holds one connection string per tier:
+Since these changes, `.env` holds one connection string per tier:
 
 | Variable                      | Tier       | Contents                                     | Access                                           | Used for |
 |-------------------------------|------------|----------------------------------------------|--------------------------------------------------|----------|
-| `AZURE_STORAGE_CONNSTR`       | read-only  | SAS (`readers` policy on `phase2`)           | read and list `phase2` only, expires 2028-03-31  | all code that reads data (`safer_streets_core`, eda notebooks, peer-hex-explorer, etc.) |
-| `AZURE_STORAGE_ADMIN_CONNSTR` | read-write | account key                                  | full read, write and delete on the whole account | writing data, and admin: SAS policies and tokens, container settings |
+| `AZURE_STORAGE_CONNSTR`       | read-only  | SAS (`readers` policy on `phase2`)           | read and list `phase2` only, expires 2028-03-31  | notebooks, apps (Streamlit, explorer), `safer_streets_core` reads |
+| `AZURE_STORAGE_ADMIN_CONNSTR` | read-write | account key                                  | full read, write and delete on the whole account | ETL, and admin: SAS policies and tokens, container settings |
 
 Both work with pandas (`storage_options={"connection_string": ...}`) and DuckDB (`CREATE SECRET` or
 `SET azure_storage_connection_string`); see [Usage](#usage).
