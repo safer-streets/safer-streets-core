@@ -2,10 +2,10 @@
 
 ## Problem
 
-Blobs in the `<storage-account>` storage account could be downloaded by anyone, with no credentials, e.g.
+Blobs in the `saferstreets` storage account could be downloaded by anyone, with no credentials, e.g.
 
 ```sh
-curl https://<storage-account>.blob.core.windows.net/phase2/index.parquet --output test.parquet
+curl https://saferstreets.blob.core.windows.net/phase2/index.parquet --output test.parquet
 ```
 
 Requirement: only specific users should be able to read the data, and the existing
@@ -57,7 +57,7 @@ blob contents were not modified.
 - The `az login` session had expired (University of Leeds conditional access requires sign-in
   every 30 days), so Azure AD / control-plane access was unavailable.
 - `AZURE_STORAGE_CONNSTR` (now `AZURE_STORAGE_ADMIN_CONNSTR`) was loaded from `safer-streets/.env`.
-  It is an account-key connection string (`DefaultEndpointsProtocol=https;AccountName=<storage-account>;AccountKey=...`).
+  It is an account-key connection string (`DefaultEndpointsProtocol=https;AccountName=saferstreets;AccountKey=...`).
 - The account key is allowed to set container ACLs via the blob data-plane API, which is what
   `az storage container set-permission` uses.
 
@@ -97,7 +97,7 @@ and the subscription must be set to the one that holds the storage account:
 
 ```sh
 az account set --subscription <subscription-id>
-az storage account update -n <storage-account> -g <resource-group> --allow-blob-public-access false
+az storage account update -n saferstreets -g <resource-group> --allow-blob-public-access false
 ```
 
 Verified state: `allowBlobPublicAccess = false`, `allowSharedKeyAccess = true`. Shared-key access
@@ -108,7 +108,7 @@ Rechecked later on 2026-10-09 with `az storage account show`, which still report
 `allowBlobPublicAccess = false`. To check it again:
 
 ```sh
-az storage account show -n <storage-account> -g <resource-group> \
+az storage account show -n saferstreets -g <resource-group> \
   --subscription <subscription-id> \
   --query "{allowBlobPublicAccess:allowBlobPublicAccess, allowSharedKeyAccess:allowSharedKeyAccess}"
 ```
@@ -127,11 +127,11 @@ The second command prints a bare token (`spr=https&sv=...&si=readers&sr=c&sig=..
 connection string, add the account details in front of it:
 
 ```text
-DefaultEndpointsProtocol=https;AccountName=<storage-account>;EndpointSuffix=core.windows.net;SharedAccessSignature=<token>
+DefaultEndpointsProtocol=https;AccountName=saferstreets;EndpointSuffix=core.windows.net;SharedAccessSignature=<token>
 ```
 
 Use this form, which includes `AccountName`. The shorter
-`BlobEndpoint=https://<storage-account>.blob.core.windows.net;SharedAccessSignature=<token>` works with
+`BlobEndpoint=https://saferstreets.blob.core.windows.net;SharedAccessSignature=<token>` works with
 pandas and with a DuckDB `CREATE SECRET`, but DuckDB's `SET azure_storage_connection_string` rejects
 it ("A invalid connection string has been provided"). `safer_streets_core.database` uses that `SET`.
 
@@ -223,7 +223,7 @@ subscription set as above.
 
      ```sh
      az role assignment create --assignee <user>@leeds.ac.uk --role "Storage Blob Data Reader" \
-       --scope /subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.Storage/storageAccounts/<storage-account>/blobServices/default/containers/phase2
+       --scope /subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.Storage/storageAccounts/saferstreets/blobServices/default/containers/phase2
      ```
 
    - **Read-only SAS connection string** (any user, including external): done for `phase2`. See
