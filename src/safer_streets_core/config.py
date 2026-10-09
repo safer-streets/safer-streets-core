@@ -36,6 +36,10 @@ class AzureSettings(_EnvSettings):
     azure_storage_connstr: SecretStr
 
 
+class AzureAdminSettings(_EnvSettings):
+    azure_storage_admin_connstr: SecretStr
+
+
 class NomisSettings(_EnvSettings):
     nomis_api_key: SecretStr
 
