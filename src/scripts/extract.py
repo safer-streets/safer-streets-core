@@ -106,7 +106,7 @@ def to_database(db_path: Path | None = None, force_download: bool = False) -> No
         DROP TABLE IF EXISTS crime_data;
         CREATE TABLE crime_data AS
         SELECT * FROM read_csv('zip://{archive}/????-??/*-street.csv', normalize_names = true);
-        ALTER TABLE crime_data ADD COLUMN geom GEOMETRY;
+        ALTER TABLE crime_data ADD COLUMN geom GEOMETRY('EPSG:27700');
         UPDATE crime_data
         SET geom = ST_Transform(
                 ST_Point(longitude, latitude),

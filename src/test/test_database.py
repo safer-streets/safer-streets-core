@@ -1,10 +1,10 @@
 import json
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import duckdb
 import geopandas as gpd
-import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
@@ -67,6 +67,20 @@ class TestDuckdbConnector:
                 assert result[0][0] > 0
         except duckdb.HTTPException as e:
             pytest.skip(f"extension download unavailable: {e}")
+
+    def test_transform_is_always_xy(self):
+        """Without geometry_always_xy, EPSG:4326 output follows the authority's lat/lon axis order."""
+        try:
+            con = duckdb_connector()
+        except duckdb.HTTPException as e:
+            pytest.skip(f"extension download unavailable: {e}")
+
+        x, y = con.execute(
+            "SELECT ST_X(g), ST_Y(g) FROM (SELECT ST_Transform(ST_Point(500000, 200000), 'EPSG:27700', 'EPSG:4326') g)"
+        ).fetchone()  # ty:ignore[not-iterable]
+        assert x == pytest.approx(-0.5547, abs=1e-4)
+        assert y == pytest.approx(51.6899, abs=1e-4)
+        con.close()
 
 
 class TestDuckdbContext:
@@ -161,43 +175,69 @@ class TestAddTableFromShapefile:
         assert "IF NOT EXISTS" in call_args
 
 
-class TestToGdf:
-    def test_converts_to_geodataframe(self):
-        df = pd.DataFrame(
-            {
-                "col1": [1, 2],
-                "col2": ["a", "b"],
-                "wkt": [
-                    "POINT (500000 200000)",
-                    "POINT (500001 200001)",
-                ],
-            }
-        )
-        with duckdb_context() as con:
-            con.register("data", df)
-            gdf = get_gdf(con, "SELECT * FROM data")
+@pytest.fixture
+def spatial_con() -> Generator[duckdb.DuckDBPyConnection]:
+    try:
+        con = duckdb_connector()
+    except duckdb.HTTPException as e:
+        pytest.skip(f"extension download unavailable: {e}")
+    yield con
+    con.close()
 
-            assert isinstance(gdf, gpd.GeoDataFrame)
-            assert gdf.crs == "EPSG:27700"
-            assert len(gdf) == 2
-            assert "wkt_geom" not in gdf.columns
-            assert "col1" in gdf.columns
-            assert "col2" in gdf.columns
 
-    def test_geometry_correctly_parsed(self):
-        df = pd.DataFrame(
-            {
-                "id": [1],
-                "wkt_geom": ["POINT (500000 200000)"],
-            }
+class TestGetGdf:
+    def test_converts_geometry_and_keeps_other_columns(self, spatial_con):
+        gdf = get_gdf(
+            spatial_con,
+            """
+            SELECT * FROM (VALUES
+                (1, 'a', ST_Point(500000, 200000)),
+                (2, 'b', ST_Point(500001, 200001))
+            ) AS v(id, name, geom)
+            """,
         )
 
-        with duckdb_context() as con:
-            con.register("data", df)
-            gdf = get_gdf(con, "SELECT * FROM data", wkt_col="wkt_geom")
+        assert isinstance(gdf, gpd.GeoDataFrame)
+        assert list(gdf.columns) == ["id", "name", "geom"]
+        assert gdf.geometry.name == "geom"
+        assert gdf["name"].tolist() == ["a", "b"]
+        assert [(p.x, p.y) for p in gdf.geometry] == [(500000, 200000), (500001, 200001)]
 
-            assert gdf.geometry[0].x == 500000
-            assert gdf.geometry[0].y == 200000
+    def test_bare_geometry_defaults_to_bng(self, spatial_con):
+        gdf = get_gdf(spatial_con, "SELECT ST_Point(500000, 200000) AS geom")
+        assert gdf.crs is not None and gdf.crs.to_epsg() == 27700
+
+    def test_crs_override_for_bare_geometry(self, spatial_con):
+        gdf = get_gdf(spatial_con, "SELECT ST_Point(-1.5, 53.8) AS geom", crs="EPSG:4326")
+        assert gdf.crs is not None and gdf.crs.to_epsg() == 4326
+
+    def test_qualified_geometry_keeps_its_own_crs(self, spatial_con):
+        """The column's CRS wins over the default — relabelling lon/lat as BNG would be silently wrong."""
+        gdf = get_gdf(spatial_con, "SELECT ST_Point(-1.5, 53.8)::GEOMETRY('EPSG:4326') AS geom")
+        assert gdf.crs is not None and gdf.crs.to_epsg() == 4326
+
+    def test_empty_result(self, spatial_con):
+        gdf = get_gdf(spatial_con, "SELECT 1 AS id, ST_Point(0, 0) AS geom WHERE false")
+        assert gdf.empty
+        assert gdf.geometry.name == "geom"
+        assert gdf.crs is not None and gdf.crs.to_epsg() == 27700
+
+    def test_null_geometry_preserved(self, spatial_con):
+        gdf = get_gdf(spatial_con, "SELECT * FROM (VALUES (1, ST_Point(0, 0)), (2, NULL)) AS v(id, geom)")
+        assert len(gdf) == 2
+        assert gdf.geometry.isna().tolist() == [False, True]
+
+    def test_query_kwargs_passed_through(self, spatial_con):
+        gdf = get_gdf(
+            spatial_con,
+            "SELECT * FROM (VALUES (1, ST_Point(0, 0)), (2, ST_Point(1, 1))) AS v(id, geom) WHERE id = $id",
+            params={"id": 2},
+        )
+        assert gdf["id"].tolist() == [2]
+
+    def test_raises_without_geometry_column(self, spatial_con):
+        with pytest.raises(ValueError, match="No geometry column"):
+            get_gdf(spatial_con, "SELECT 1 AS id")
 
 
 class TestGeoparquetRoundTrip:
@@ -399,6 +439,36 @@ class TestIndexGeometryTables:
         index_geometry_tables(con)
         index_geometry_tables(con)  # second call must not raise (CREATE INDEX IF NOT EXISTS)
         con.close()
+
+    def test_bare_geometry_labelled_bng(self, spatial_con):
+        spatial_con.execute("CREATE TABLE boundaries AS SELECT ST_Point(0, 0) AS geom UNION ALL SELECT NULL;")
+        index_geometry_tables(spatial_con)
+        assert spatial_con.execute("SELECT DISTINCT typeof(geom) FROM boundaries").fetchall() == [
+            ("GEOMETRY('EPSG:27700')",)
+        ]
+
+    def test_qualified_geometry_keeps_its_crs(self, spatial_con):
+        spatial_con.execute("CREATE TABLE wgs84 AS SELECT ST_Point(-1.5, 53.8)::GEOMETRY('EPSG:4326') AS geom;")
+        index_geometry_tables(spatial_con)
+        assert spatial_con.execute("SELECT typeof(geom) FROM wgs84").fetchone() == ("GEOMETRY('EPSG:4326')",)
+        indexes = {r[0] for r in spatial_con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
+        assert "wgs84_geom_rtree" in indexes
+
+    def test_relabels_bare_column_already_indexed(self, spatial_con):
+        """A database indexed before columns were labelled has an RTree blocking the type change."""
+        spatial_con.execute("CREATE TABLE boundaries AS SELECT ST_Point(0, 0) AS geom;")
+        spatial_con.execute('CREATE INDEX "boundaries_geom_rtree" ON boundaries USING RTREE (geom);')
+        index_geometry_tables(spatial_con)
+        assert spatial_con.execute("SELECT typeof(geom) FROM boundaries").fetchone() == ("GEOMETRY('EPSG:27700')",)
+        indexes = {r[0] for r in spatial_con.execute("SELECT index_name FROM duckdb_indexes()").fetchall()}
+        assert "boundaries_geom_rtree" in indexes
+
+    def test_labelled_tables_refuse_mixed_crs(self, spatial_con):
+        spatial_con.execute("CREATE TABLE boundaries AS SELECT ST_Point(500000, 200000) AS geom;")
+        spatial_con.execute("CREATE TABLE wgs84 AS SELECT ST_Point(-1.5, 53.8)::GEOMETRY('EPSG:4326') AS geom;")
+        index_geometry_tables(spatial_con)
+        with pytest.raises(duckdb.BinderException, match="different coordinate reference systems"):
+            spatial_con.execute("SELECT ST_Intersects(b.geom, w.geom) FROM boundaries b, wgs84 w")
 
     def test_crime_data_excluded_by_default(self):
         try:
